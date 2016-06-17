@@ -30,7 +30,7 @@
 -export([all_vnodes/0, all_vnodes/1, all_vnodes_status/0,
          force_handoffs/0, repair/3, all_handoffs/0, repair_status/1, xfer_complete/2,
          kill_repairs/1]).
--export([all_index_pid/1, get_vnode_pid/2, start_vnode/2,
+-export([all_index_pid/1, get_vnode_pid/2, get_vnode_pid/3, start_vnode/2,
          unregister_vnode/2, unregister_vnode/3, vnode_event/4]).
 %% Field debugging
 -export([get_tab/0]).
@@ -150,6 +150,9 @@ get_tab() ->
 
 get_vnode_pid(Index, VNodeMod) ->
     gen_server:call(?MODULE, {Index, VNodeMod, get_vnode}, infinity).
+
+get_vnode_pid(Node, Index, VNodeMod) ->
+    gen_server:call({?MODULE, Node}, {Index, VNodeMod, get_vnode}, infinity).
 
 %% ===================================================================
 %% ETS-based API: try to determine response by reading protected ETS

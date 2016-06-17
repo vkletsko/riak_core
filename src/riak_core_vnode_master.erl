@@ -25,7 +25,8 @@
 -module(riak_core_vnode_master).
 -include("riak_core_vnode.hrl").
 -behaviour(gen_server).
--export([start_link/1, start_link/2, start_link/3, get_vnode_pid/2,
+-export([start_link/1, start_link/2, start_link/3,
+         get_vnode_pid/2, get_vnode_pid/3,
          start_vnode/2,
          command/3, command/4,
          command_unreliable/3, command_unreliable/4,
@@ -64,6 +65,9 @@ start_vnode(Index, VNodeMod) ->
 
 get_vnode_pid(Index, VNodeMod) ->
     riak_core_vnode_manager:get_vnode_pid(Index, VNodeMod).
+
+get_vnode_pid(Node, Index, VNodeMod) ->
+    riak_core_vnode_manager:get_vnode_pid(Node, Index, VNodeMod).
 
 command(Preflist, Msg, VMaster) ->
     command2(Preflist, Msg, ignore, VMaster, normal).
