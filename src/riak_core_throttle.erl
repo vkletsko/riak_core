@@ -49,7 +49,8 @@
          clear_limits/2,
          create_limits_translator_fun/2,
          set_throttle_by_load/3,
-         throttle/2]).
+         throttle/2, 
+         throttle_by_load/3]).
 
 -ifdef(TEST).
 -export([get_throttle_for_load/3]).
@@ -266,6 +267,9 @@ throttle(AppName, Key) ->
     maybe_throttle(Key,
                    get_throttle(AppName, Key),
                    is_throttle_enabled(AppName, Key)).
+
+throttle_by_load(AppName, Key, LoadFactor) ->
+    maybe_throttle(Key, get_throttle_for_load(AppName, Key, LoadFactor), is_throttle_enabled(AppName, Key)).
 
 maybe_throttle(Key, undefined, _False) ->
     error({badkey, Key});
