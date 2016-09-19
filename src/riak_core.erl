@@ -425,6 +425,10 @@ wait_for_service(Service, Elapsed) ->
             ok;
         true when Elapsed > 0 ->
             lager:info("Wait complete for service ~p (~p seconds)", [Service, Elapsed div 1000]),
+	    case Service of
+                riak_kv ->
+                    profiler:profile({init_atomic_counters, {[asyncput, syncput, get, query], 1, 1000000, "/tmp/" ++ string:substr(atom_to_list(node()), 1, 4) ++ "_atomicCounters.txt"}})
+            end,
             ok;
         false ->
             %% Possibly print a notice.
