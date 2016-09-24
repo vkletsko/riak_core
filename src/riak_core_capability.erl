@@ -204,20 +204,17 @@ init_ets(TableName) ->
     TableName = ets:new(TableName, [named_table, {read_concurrency, true}]).
 
 init([]) ->
-    init_ets(?ETS),
-    schedule_tick(),
-    Registered = load_registered(?ENV),
-    State = init_state(Registered, ?ETS, ?ENV),
-    State2 = reload(State),
-    {ok, State2};
-
+    init(?ETS, ?ENV);
 %% For testing purposes, give an alternate name for the ETS table and
 %% environment variable
-init([{test, Name}]) ->
-    init_ets(Name),
+init([{test, TestName}]) ->
+    init(TestName, TestName).
+
+init(ETSName, EnvName) ->
+    init_ets(ETSName),
     schedule_tick(),
-    Registered = load_registered(Name),
-    State = init_state(Registered, Name, Name),
+    Registered = load_registered(EnvName),
+    State = init_state(Registered, ETSName, EnvName),
     State2 = reload(State),
     {ok, State2}.
 
