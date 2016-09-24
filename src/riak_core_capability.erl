@@ -74,6 +74,10 @@
 -module(riak_core_capability).
 -behaviour(gen_server).
 
+-ifdef(TEST).
+-compile(export_all).
+-endif.
+
 %% API
 -export([start_link/0,
          register/4,
@@ -99,19 +103,28 @@
 
 -type registered() :: [{capability(), #capability{}}].
 
+-define(ETS, riak_capability_ets).
+-define(ENV, registered_capabilities).
+-define(CAPS, '$riak_capabilities').
+
 -record(state, {registered :: registered(),
                 last_ring_id :: term(),
                 supported :: [{node(), [{capability(), [mode()]}]}],
                 unknown :: [node()],
-                negotiated :: [{capability(), mode()}]
+                negotiated :: [{capability(), mode()}],
+                ets_table :: atom(),
+                env_var :: atom()
                }).
 
--define(ETS, riak_capability_ets).
--define(CAPS, '$riak_capabilities').
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+-ifdef(TEST).
+start(Args) ->
+    gen_server:start(?MODULE, Args, []).
+-endif.
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -121,8 +134,13 @@ start_link() ->
 %% maps to different modes. The order of modes in `Supported' determines the
 %% mode preference -- modes listed earlier are more preferred.
 register(Capability, Supported, Default, LegacyVar) ->
+    register(?MODULE, Capability, Supported, Default, LegacyVar).
+
+%% register/5 can be called explicitly by test code, with a pid instead
+%% of a registered server name
+register(Server, Capability, Supported, Default, LegacyVar) ->
     Info = capability_info(Supported, Default, LegacyVar),
-    gen_server:call(?MODULE, {register, Capability, Info}, infinity),
+    gen_server:call(Server, {register, Capability, Info}, infinity),
     ok.
 
 %% @doc Register a new capability providing a list of supported modes as well
@@ -145,42 +163,30 @@ get(Capability) ->
 %% @doc Query the current negotiated mode for a given capability, returning
 %%      `Default' if the capability system is unavailable.
 get(Capability, Default) ->
-    try
-        case ets:lookup(?ETS, Capability) of
-            [] ->
-                Default;
-            [{Capability, Choice}] ->
-                Choice
-        end
-    catch
-        _:_ ->
-            Default
-    end.
+    get(Capability, Default, catch ets:lookup(?ETS, Capability)).
 
-%% @doc Return a list of all negotiated capabilities
+get(Capability, _Default, [{Capability, Choice}]) ->
+    Choice;
+get(_, Default, _) ->
+    Default.
+
+%% @doc Return a list of all negotiated capabilities.
 all() ->
     ets:tab2list(?ETS).
 
 %% @doc Add the local node's supported capabilities to the given
 %% ring. Currently used during the `riak-admin join' process
 update_ring(Ring) ->
+    update_ring(Ring, catch ets:lookup(?ETS, '$supported')).
+
+update_ring(Ring, [{_, Supported}]) ->
+    add_supported_to_ring(node(), Supported, Ring);
+update_ring(Ring, _) ->
     %% If a join occurs immediately after a node has started, it is
     %% possible that the ETS table does not yet exist, or that the
     %% '$supported' key has not yet been written. Therefore, we catch
     %% any errors and return an unmodified ring.
-    Supported = try
-                    [{_, Sup}] = ets:lookup(?ETS, '$supported'),
-                    Sup
-                catch
-                    _:_ ->
-                        error
-                end,
-    case Supported of
-        error ->
-            {false, Ring};
-        _ ->
-            add_supported_to_ring(node(), Supported, Ring)
-    end.
+    {false, Ring}.
 
 %% @doc
 %% Make a capbility from a capability atom, a list of supported modes,
@@ -194,19 +200,37 @@ make_capability(Capability, Supported, Default, Legacy) ->
 %%% gen_server callbacks
 %%%===================================================================
 
+init_ets(TableName) ->
+    TableName = ets:new(TableName, [named_table, {read_concurrency, true}]).
+
 init([]) ->
-    ?ETS = ets:new(?ETS, [named_table, {read_concurrency, true}]),
+    init_ets(?ETS),
     schedule_tick(),
-    Registered = load_registered(),
-    State = init_state(Registered),
+    Registered = load_registered(?ENV),
+    State = init_state(Registered, ?ETS, ?ENV),
+    State2 = reload(State),
+    {ok, State2};
+
+%% For testing purposes, give an alternate name for the ETS table and
+%% environment variable
+init([{test, Name}]) ->
+    init_ets(Name),
+    schedule_tick(),
+    Registered = load_registered(Name),
+    State = init_state(Registered, Name, Name),
     State2 = reload(State),
     {ok, State2}.
 
 init_state(Registered) ->
+    init_state(Registered, ?ETS, ?ENV).
+
+init_state(Registered, TableName, EnvName) ->
     #state{registered=Registered,
            supported=[],
            unknown=[],
-           negotiated=[]}.
+           negotiated=[],
+           ets_table=TableName,
+           env_var=EnvName}.
 
 handle_call({register, Capability, Info}, _From, State) ->
     State2 = register_capability(node(), Capability, Info, State),
@@ -214,7 +238,7 @@ handle_call({register, Capability, Info}, _From, State) ->
     State4 = renegotiate_capabilities(State3),
     publish_supported(State4),
     update_local_cache(State4),
-    save_registered(State4#state.registered),
+    save_registered(State4#state.env_var, State4#state.registered),
     {reply, ok, State4}.
 
 handle_cast(_Msg, State) ->
@@ -278,7 +302,7 @@ reload(State) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     State3 = update_supported(Ring, State2),
     update_local_cache(State3),
-    save_registered(State3#state.registered),
+    save_registered(State3#state.env_var, State3#state.registered),
     State3.
 
 update_supported(State) ->
@@ -287,6 +311,9 @@ update_supported(State) ->
 
 %% Update this node's view of cluster capabilities based on a received ring
 update_supported(Ring, State) ->
+    update_supported(Ring, State, fun cache_and_log_changes/3).
+
+update_supported(Ring, State, DiffFun) ->
     AllSupported = get_supported_from_ring(Ring),
     State2 = remove_members(Ring, State),
     State3 =
@@ -306,6 +333,12 @@ update_supported(Ring, State) ->
                         end
                 end, State2, AllSupported),
     State4 = renegotiate_capabilities(State3),
+
+    compare_capabilities(State4,
+                         State3#state.negotiated,
+                         State4#state.negotiated,
+                         DiffFun),
+
     State4.
 
 register_capability(Node, Capability, Info, State) ->
@@ -370,9 +403,9 @@ add_node_capabilities(Node, Capabilities, State) ->
 %% We maintain a cached-copy of the local node's supported capabilities
 %% in our existing capability ETS table. This allows update_ring/1
 %% to update rings without going through the capability server.
-update_local_cache(State) ->
+update_local_cache(#state{ets_table=Table}=State) ->
     Supported = get_supported(node(), State),
-    ets:insert(?ETS, {'$supported', Supported}),
+    ets:insert(Table, {'$supported', Supported}),
     ok.
 
 %% Publish the local node's supported modes in the ring
@@ -435,14 +468,24 @@ negotiate_capabilities(Node, Override, State=#state{registered=Registered,
             State#state{negotiated=N}
     end.
 
+cache_and_log_changes(#state{ets_table=Table}, Capability, {'$none', New}) ->
+    ets:insert(Table, {Capability, New}),
+    lager:info("New capability: ~p = ~p", [Capability, New]);
+cache_and_log_changes(#state{ets_table=Table}, Capability, {Old, '$none'}) ->
+    ets:delete(Table, Capability),
+    lager:info("Removed capability ~p (previously: ~p)",
+               [Capability, Old]);
+cache_and_log_changes(#state{ets_table=Table}, Capability, {Old, New}) ->
+    ets:insert(Table, {Capability, New}),
+    lager:info("Capability changed: ~p / ~p -> ~p",
+               [Capability, Old, New]).
+
 renegotiate_capabilities(State=#state{supported=[]}) ->
     State;
 renegotiate_capabilities(State) ->
     Caps = orddict:fetch(node(), State#state.supported),
     Overrides = get_overrides(Caps),
     State2 = negotiate_capabilities(node(), Overrides, State),
-    process_capability_changes(State#state.negotiated,
-                               State2#state.negotiated),
     State2.
 
 %% Known capabilities are tracked based on node:
@@ -548,20 +591,9 @@ get_app_overrides(App) ->
 %% Log capability changes as well as update the capability ETS table.
 %% The ETS table allows other processes to query current capabilities
 %% without going through the capability server.
-process_capability_changes(OldModes, NewModes) ->
+compare_capabilities(NewState, OldModes, NewModes, Fun) ->
     Diff = riak_core_util:orddict_delta(OldModes, NewModes),
-    orddict:fold(fun(Capability, {'$none', New}, _) ->
-                         ets:insert(?ETS, {Capability, New}),
-                         lager:info("New capability: ~p = ~p", [Capability, New]);
-                    (Capability, {Old, '$none'}, _) ->
-                         ets:delete(?ETS, Capability),
-                         lager:info("Removed capability ~p (previously: ~p)",
-                                    [Capability, Old]);
-                    (Capability, {Old, New}, _) ->
-                         ets:insert(?ETS, {Capability, New}),
-                         lager:info("Capability changed: ~p / ~p -> ~p",
-                                    [Capability, Old, New])
-                 end, ok, Diff).
+    orddict:fold(fun(Key, Value, _Acc) -> Fun(NewState, Key, Value) end, ok, Diff).
 
 %% Determine the capabilities supported by each cluster member based on the
 %% information published in the ring
@@ -620,11 +652,11 @@ query_capability(Node, Capability, DefaultSup, {App, Var, Map}) ->
             end
     end.
 
-save_registered(Registered) ->
-    application:set_env(riak_core, registered_capabilities, Registered).
+save_registered(Name, Registered) ->
+    application:set_env(riak_core, Name, Registered).
 
-load_registered() ->
-    case application:get_env(riak_core, registered_capabilities) of
+load_registered(Name) ->
+    case application:get_env(riak_core, Name) of
         undefined -> [];
         {ok, Caps} -> Caps
     end.
@@ -638,7 +670,7 @@ load_registered() ->
 basic_test() ->
     S1 = init_state([]),
 
-    S2 = register_capability(n1, 
+    S2 = register_capability(n1,
                              {riak_core, test},
                              capability_info([x,a,c,y], y, []),
                              S1),
