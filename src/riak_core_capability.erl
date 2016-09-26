@@ -204,15 +204,15 @@ init_ets(TableName) ->
     TableName = ets:new(TableName, [named_table, {read_concurrency, true}]).
 
 init([]) ->
+    schedule_tick(),
     init(?ETS, ?ENV);
 %% For testing purposes, give an alternate name for the ETS table and
-%% environment variable
+%% environment variable. Do not schedule an update tick.
 init([{test, TestName}]) ->
     init(TestName, TestName).
 
 init(ETSName, EnvName) ->
     init_ets(ETSName),
-    schedule_tick(),
     Registered = load_registered(EnvName),
     State = init_state(Registered, ETSName, EnvName),
     State2 = reload(State),
@@ -240,13 +240,8 @@ handle_cast(_Msg, State) ->
 
 handle_info(tick, State) ->
     schedule_tick(),
-    State2 = maybe_update_supported(State),
-    State3 =
-        lists:foldl(fun(Node, StateAcc) ->
-                            add_node(Node, [], StateAcc)
-                    end, State2, State2#state.unknown),
-    State4 = renegotiate_capabilities(State3),
-    {noreply, State4};
+    CurrentRingID = riak_core_ring_manager:get_ring_id(),
+    maybe_merge_ring_changes(CurrentRingID, State);
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -261,15 +256,22 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-maybe_update_supported(State=#state{last_ring_id=LastID}) ->
-    case riak_core_ring_manager:get_ring_id() of
-        LastID ->
-            State;
-        RingID ->
-            {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-            State2 = update_supported(Ring, State),
-            State2#state{last_ring_id=RingID}
-    end.
+maybe_merge_ring_changes(CurrentRingID,
+                         #state{last_ring_id=CurrentRingID}=State) ->
+    %% We've previously seen the most recent ring, nothing to do
+    State;
+maybe_merge_ring_changes(CurrentRingID, State) ->
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    merge_ring_changes(CurrentRingID, Ring, State).
+
+merge_ring_changes(CurrentRingID, Ring, State) ->
+    State2 = update_supported(Ring, State),
+    State3 =
+        lists:foldl(fun(Node, StateAcc) ->
+                            add_node(Node, [], StateAcc)
+                    end, State2, State2#state.unknown),
+    State4 = renegotiate_capabilities(State3),
+    {noreply, State4#state{last_ring_id=CurrentRingID}}.
 
 capability_info(Supported, Default, Legacy) ->
     #capability{supported=Supported, default=Default, legacy=Legacy}.
