@@ -218,9 +218,6 @@ init(ETSName, EnvName) ->
     State2 = reload(State),
     {ok, State2}.
 
-init_state(Registered) ->
-    init_state(Registered, ?ETS, ?ENV).
-
 init_state(Registered, TableName, EnvName) ->
     #state{registered=Registered,
            supported=[],
@@ -665,7 +662,7 @@ load_registered(Name) ->
 -include_lib("eunit/include/eunit.hrl").
 
 basic_test() ->
-    S1 = init_state([]),
+    S1 = init_state([], ?ETS, ?ENV),
 
     S2 = register_capability(n1,
                              {riak_core, test},
