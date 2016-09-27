@@ -113,7 +113,8 @@
                 unknown :: [node()],
                 negotiated :: [{capability(), mode()}],
                 ets_table :: atom(),
-                env_var :: atom()
+                env_var :: atom(),
+                node_name :: atom() %% Not a node() because we may be cheating for test purposes
                }).
 
 
@@ -205,29 +206,30 @@ init_ets(TableName) ->
 
 init([]) ->
     schedule_tick(),
-    init(?ETS, ?ENV);
+    init(?ETS, ?ENV, node());
 %% For testing purposes, give an alternate name for the ETS table and
 %% environment variable. Do not schedule an update tick.
 init([{test, TestName}]) ->
-    init(TestName, TestName).
+    init(TestName, TestName, TestName).
 
-init(ETSName, EnvName) ->
+init(ETSName, EnvName, NodeName) ->
     init_ets(ETSName),
     Registered = load_registered(EnvName),
-    State = init_state(Registered, ETSName, EnvName),
+    State = init_state(Registered, ETSName, EnvName, NodeName),
     State2 = reload(State),
     {ok, State2}.
 
-init_state(Registered, TableName, EnvName) ->
+init_state(Registered, TableName, EnvName, NodeName) ->
     #state{registered=Registered,
            supported=[],
            unknown=[],
            negotiated=[],
            ets_table=TableName,
-           env_var=EnvName}.
+           env_var=EnvName,
+           node_name=NodeName}.
 
-handle_call({register, Capability, Info}, _From, State) ->
-    State2 = register_capability(node(), Capability, Info, State),
+handle_call({register, Capability, Info}, _From, #state{node_name=Node}=State) ->
+    State2 = register_capability(Node, Capability, Info, State),
     State3 = update_supported(State2),
     publish_supported(State3),
     update_local_cache(State3),
@@ -282,15 +284,15 @@ schedule_tick() ->
     erlang:send_after(Tick, ?MODULE, tick).
 
 %% Capabilities are re-initialized if riak_core_capability server crashes
-reload(State=#state{registered=[]}) ->
+reload(#state{registered=[]}=State) ->
     State;
-reload(State) ->
+reload(#state{node_name=Node}=State) ->
     lager:info("Reloading capabilities"),
     State2 =
         orddict:fold(
           fun(Capability, Info, S) ->
                   S2 = add_registered(Capability, Info, S),
-                  S3 = add_supported(node(), Capability,
+                  S3 = add_supported(Node, Capability,
                                      Info#capability.supported, S2),
                   S3
           end, State, State#state.registered),
@@ -308,11 +310,11 @@ update_supported(State) ->
 update_supported(Ring, State) ->
     update_supported(Ring, State, fun cache_and_log_changes/3).
 
-update_supported(Ring, State, DiffFun) ->
+update_supported(Ring, #state{node_name=ThisNode}=State, DiffFun) ->
     AllSupported = get_supported_from_ring(Ring),
     State2 = remove_members(Ring, State),
     State3 =
-    lists:foldl(fun({Node, _}, StateAcc) when Node == node() ->
+    lists:foldl(fun({Node, _}, StateAcc) when Node == ThisNode ->
                         StateAcc;
                    ({Node, Supported}, StateAcc) ->
                         Known = get_supported(Node, StateAcc),
@@ -398,14 +400,13 @@ add_node_capabilities(Node, Capabilities, State) ->
 %% We maintain a cached-copy of the local node's supported capabilities
 %% in our existing capability ETS table. This allows update_ring/1
 %% to update rings without going through the capability server.
-update_local_cache(#state{ets_table=Table}=State) ->
-    Supported = get_supported(node(), State),
+update_local_cache(#state{ets_table=Table, node_name=Node}=State) ->
+    Supported = get_supported(Node, State),
     ets:insert(Table, {'$supported', Supported}),
     ok.
 
 %% Publish the local node's supported modes in the ring
-publish_supported(State) ->
-    Node = node(),
+publish_supported(#state{node_name=Node}=State) ->
     Supported = get_supported(Node, State),
     F = fun(Ring, _) ->
                 {Changed, Ring2} =
@@ -475,12 +476,12 @@ cache_and_log_changes(#state{ets_table=Table}, Capability, {Old, New}) ->
     lager:info("Capability changed: ~p / ~p -> ~p",
                [Capability, Old, New]).
 
-renegotiate_capabilities(State=#state{supported=[]}) ->
+renegotiate_capabilities(#state{supported=[]}=State) ->
     State;
-renegotiate_capabilities(State) ->
-    Caps = orddict:fetch(node(), State#state.supported),
+renegotiate_capabilities(#state{node_name=Node}=State) ->
+    Caps = orddict:fetch(Node, State#state.supported),
     Overrides = get_overrides(Caps),
-    State2 = negotiate_capabilities(node(), Overrides, State),
+    State2 = negotiate_capabilities(Node, Overrides, State),
     State2.
 
 %% Known capabilities are tracked based on node:
@@ -663,7 +664,7 @@ load_registered(Name) ->
 -include_lib("eunit/include/eunit.hrl").
 
 basic_test() ->
-    S1 = init_state([], ?ETS, ?ENV),
+    S1 = init_state([], ?ETS, ?ENV, node()),
 
     S2 = register_capability(n1,
                              {riak_core, test},
