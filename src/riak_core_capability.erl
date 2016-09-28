@@ -85,7 +85,8 @@
          get/1,
          get/2,
          all/0,
-         update_ring/1]).
+         update_ring/1,
+         ring_transaction_helper/2]).
 
 -export([make_capability/4,
          preferred_modes/4]).
@@ -142,6 +143,14 @@ register(Capability, Supported, Default, LegacyVar) ->
 register(Server, Capability, Supported, Default, LegacyVar) ->
     Info = capability_info(Supported, Default, LegacyVar),
     gen_server:call(Server, {register, Capability, Info}, infinity),
+    ok.
+
+%% register/6 can be called explicitly by test code, with a pid instead
+%% of a registered server name, and `no_ring_update' as the last parameter
+%% to sidestep any use of `riak_core_ring_manager'.
+register(Server, Capability, Supported, Default, LegacyVar, no_ring_update) ->
+    Info = capability_info(Supported, Default, LegacyVar),
+    gen_server:call(Server, {register, Capability, Info, no_ring_update}, infinity),
     ok.
 
 %% @doc Register a new capability providing a list of supported modes as well
@@ -229,10 +238,32 @@ init_state(Registered, TableName, EnvName, NodeName) ->
            node_name=NodeName}.
 
 handle_call({register, Capability, Info}, _From, #state{node_name=Node}=State) ->
+    do_register(Node, Capability, Info, update_ring, State);
+handle_call({register, Capability, Info, DoRingUpdate}, _From,
+            #state{node_name=Node}=State) ->
+    do_register(Node, Capability, Info, DoRingUpdate, State).
+
+do_register(Node, Capability, Info, DoRingUpdate, State) ->
     State2 = register_capability(Node, Capability, Info, State),
     State3 = update_supported(State2),
-    publish_supported(State3),
+
+    %%% Now the functions with side effects
+
+    %% Updates ring via `add_supported_to_ring/3'.
+    %% `riak_core_ring_manager' will gossip the results.
+    case DoRingUpdate of
+        update_ring ->
+            publish_supported(State3);
+        _ ->
+            ok
+    end,
+
+    %% Extracts `supported' capabilities for this node from state,
+    %% stores it in ETS.
     update_local_cache(State3),
+
+    %% Saves the registered structure from state into the specified
+    %% environment variable under riak_core
     save_registered(State3#state.env_var, State3#state.registered),
     {reply, ok, State3}.
 
@@ -405,20 +436,21 @@ update_local_cache(#state{ets_table=Table, node_name=Node}=State) ->
     ets:insert(Table, {'$supported', Supported}),
     ok.
 
+%% Sent to `riak_core_ring_manager:ring_trans/2'
+ring_transaction_helper(Ring, {Node, Supported}) ->
+    {Changed, Ring2} = add_supported_to_ring(Node, Supported, Ring),
+    case Changed of
+        true ->
+            {new_ring, Ring2};
+        false ->
+            ignore
+    end.
+
 %% Publish the local node's supported modes in the ring
 publish_supported(#state{node_name=Node}=State) ->
     Supported = get_supported(Node, State),
-    F = fun(Ring, _) ->
-                {Changed, Ring2} =
-                    add_supported_to_ring(Node, Supported, Ring),
-                case Changed of
-                    true ->
-                        {new_ring, Ring2};
-                    false ->
-                        ignore
-                end
-        end,
-    riak_core_ring_manager:ring_trans(F, ok),
+    riak_core_ring_manager:ring_trans(fun ring_transaction_helper/2,
+                                      {Node, Supported}),
     ok.
 
 %% Add a node's capabilities to the provided ring
