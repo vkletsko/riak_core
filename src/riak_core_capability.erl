@@ -145,6 +145,7 @@ register(Server, Capability, Supported, Default, LegacyVar) ->
     gen_server:call(Server, {register, Capability, Info}, infinity),
     ok.
 
+-ifdef(TEST).
 %% register/6 can be called explicitly by test code, with a pid instead
 %% of a registered server name, and `no_ring_update' as the last parameter
 %% to sidestep any use of `riak_core_ring_manager'.
@@ -152,6 +153,7 @@ register(Server, Capability, Supported, Default, LegacyVar, no_ring_update) ->
     Info = capability_info(Supported, Default, LegacyVar),
     gen_server:call(Server, {register, Capability, Info, no_ring_update}, infinity),
     ok.
+-endif.
 
 %% @doc Register a new capability providing a list of supported modes as well
 %% as the default value. The order of modes in `Supported' determines the mode
