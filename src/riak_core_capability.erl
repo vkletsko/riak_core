@@ -146,12 +146,15 @@ register(Server, Capability, Supported, Default, LegacyVar) ->
     ok.
 
 -ifdef(TEST).
-%% register/6 can be called explicitly by test code, with a pid instead
-%% of a registered server name, and `no_ring_update' as the last parameter
-%% to sidestep any use of `riak_core_ring_manager'.
-register(Server, Capability, Supported, Default, LegacyVar, no_ring_update) ->
+%% register/6 can be called explicitly by test code, with a pid
+%% instead of a registered server name, and a ring as the last
+%% argument to sidestep any use of `riak_core_ring_manager'. The ring
+%% will not be updated; in order to change the ring structure,
+%% `ring_transaction_helper/2' or `add_supported_to_ring/3' must be
+%% invoked separately.
+register(Server, Capability, Supported, Default, LegacyVar, Ring) ->
     Info = capability_info(Supported, Default, LegacyVar),
-    gen_server:call(Server, {register, Capability, Info, no_ring_update}, infinity),
+    gen_server:call(Server, {register, Capability, Info, Ring}, infinity),
     ok.
 -endif.
 
@@ -240,21 +243,23 @@ init_state(Registered, TableName, EnvName, NodeName) ->
            node_name=NodeName}.
 
 handle_call({register, Capability, Info}, _From, #state{node_name=Node}=State) ->
-    do_register(Node, Capability, Info, update_ring, State);
-handle_call({register, Capability, Info, DoRingUpdate}, _From,
+    do_register(Node, Capability, Info, undefined, State);
+handle_call({register, Capability, Info, Ring}, _From,
             #state{node_name=Node}=State) ->
-    do_register(Node, Capability, Info, DoRingUpdate, State).
+    do_register(Node, Capability, Info, Ring, State).
 
-do_register(Node, Capability, Info, DoRingUpdate, State) ->
+do_register(Node, Capability, Info, MaybeRing, State) ->
     State2 = register_capability(Node, Capability, Info, State),
-    State3 = update_supported(State2),
+    State3 = update_supported(MaybeRing, State2),
 
     %%% Now the functions with side effects
 
     %% Updates ring via `add_supported_to_ring/3'.
-    %% `riak_core_ring_manager' will gossip the results.
-    case DoRingUpdate of
-        update_ring ->
+    %% `riak_core_ring_manager' will gossip the results.  If we were
+    %% passed a ring, ignore it, because we have no way to communicate
+    %% the new ring back to the caller.
+    case MaybeRing of
+        undefined ->
             publish_supported(State3);
         _ ->
             ok
@@ -339,6 +344,8 @@ update_supported(State) ->
     {ok, Ring} = riak_core_ring_manager:get_raw_ring(),
     update_supported(Ring, State).
 
+update_supported(undefined, State) ->
+    update_supported(State);
 %% Update this node's view of cluster capabilities based on a received ring
 update_supported(Ring, State) ->
     update_supported(Ring, State, fun cache_and_log_changes/3).
