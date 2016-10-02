@@ -428,7 +428,7 @@ wait_for_service(Service, Elapsed) ->
 	    case Service of
                 riak_kv ->
 		    io:format("Initializing atomic counters node = ~p~n", [node()]),
-                    eleveldb:profile({init_event_buffer, {100, "/tmp/" ++ string:substr(atom_to_list(node()), 1, 4) ++ "_events.txt"}})
+                    eleveldb:profile({init_event_buffer, {1000, "/tmp/" ++ string:substr(atom_to_list(node()), 1, 4) ++ "_events.txt"}})
             end,
             ok;
         false ->
