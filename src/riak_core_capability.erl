@@ -126,6 +126,10 @@
 -ifdef(TEST).
 start(Args) ->
     gen_server:start(?MODULE, Args, []).
+
+%% Simulate a tick for test purposes.
+tick(Server, NewRingID, NewRing) ->
+    gen_server:cast(Server, {merge, NewRingID, NewRing}).
 -endif.
 
 start_link() ->
@@ -156,6 +160,10 @@ register(Server, Capability, Supported, Default, LegacyVar, Ring) ->
     Info = capability_info(Supported, Default, LegacyVar),
     gen_server:call(Server, {register, Capability, Info, Ring}, infinity),
     ok.
+
+%% To assist with testing, retrieve the state from this server process
+get_state(Server) ->
+    gen_server:call(Server, get_state, infinity).
 -endif.
 
 %% @doc Register a new capability providing a list of supported modes as well
@@ -218,13 +226,15 @@ make_capability(Capability, Supported, Default, Legacy) ->
 init_ets(TableName) ->
     TableName = ets:new(TableName, [named_table, {read_concurrency, true}]).
 
-init([]) ->
-    schedule_tick(),
-    init(?ETS, ?ENV, node());
+
 %% For testing purposes, give an alternate name for the ETS table and
 %% environment variable. Do not schedule an update tick.
 init([{test, TestName}]) ->
-    init(TestName, TestName, TestName).
+    init(TestName, TestName, TestName);
+
+init([]) ->
+    schedule_tick(),
+    init(?ETS, ?ENV, node()).
 
 init(ETSName, EnvName, NodeName) ->
     init_ets(ETSName),
@@ -242,6 +252,8 @@ init_state(Registered, TableName, EnvName, NodeName) ->
            env_var=EnvName,
            node_name=NodeName}.
 
+handle_call(get_state, _From, State) ->
+    {reply, State, State};
 handle_call({register, Capability, Info}, _From, #state{node_name=Node}=State) ->
     do_register(Node, Capability, Info, undefined, State);
 handle_call({register, Capability, Info, Ring}, _From,
@@ -250,14 +262,23 @@ handle_call({register, Capability, Info, Ring}, _From,
 
 do_register(Node, Capability, Info, MaybeRing, State) ->
     State2 = register_capability(Node, Capability, Info, State),
+
+    %%% All functions below have side effects, sadly.
+
+    %% `update_supported/2' will retrieve a ring if `undefined' is
+    %% passed as the first argument.
     State3 = update_supported(MaybeRing, State2),
 
-    %%% Now the functions with side effects
 
-    %% Updates ring via `add_supported_to_ring/3'.
-    %% `riak_core_ring_manager' will gossip the results.  If we were
-    %% passed a ring, ignore it, because we have no way to communicate
-    %% the new ring back to the caller.
+    %% Tests can pass this function a ring to control side effects. If
+    %% no ring is supplied, `publish_supported/1' will (indirectly)
+    %% retrieve, update, and gossip the local node's ring.
+    %%
+    %% Tests can't receive an updated ring back from this function
+    %% anyway, so they'll have to call `add_supported_to_ring/3' after
+    %% this to see ring changes. That function is invoked indirectly
+    %% as part of a `riak_core_ring_manager' ring transaction in
+    %% production.
     case MaybeRing of
         undefined ->
             publish_supported(State3);
@@ -273,6 +294,10 @@ do_register(Node, Capability, Info, MaybeRing, State) ->
     %% environment variable under riak_core
     save_registered(State3#state.env_var, State3#state.registered),
     {reply, ok, State3}.
+
+%% Effectively the same as a `tick' but for testing
+handle_cast({merge, NewId, NewRing}, State) ->
+    merge_ring_changes(NewId, NewRing, State);
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -733,5 +758,42 @@ basic_test() ->
                                 S7),
     ?assertEqual([{{riak_core, test}, x}], S8#state.negotiated),
     ok.
+
+process_test() ->
+    {ok, Node1} = start([{test, node1}]),
+    {ok, Node2} = start([{test, node2}]),
+    Ring1 = riak_core_ring:fresh(8, node1),
+    Ring2 = riak_core_ring:fresh(8, node2),
+
+    ok = register(Node1, {test, cap1}, [preferred, deprecated, ancient], preferred, [], Ring1),
+    ok = register(Node2, {test, cap1}, [ancient], ancient, [], Ring2),
+
+    State1 = get_state(Node1),
+    State2 = get_state(Node2),
+
+    State1 == State2. %% let this compile
+
+    %% {true, NewRing1} =
+    %%     add_supported_to_ring(node1, State1#state.supported, Ring1),
+    %% {true, NewRing2} =
+    %%     add_supported_to_ring(node2, State2#state.supported, Ring2).
+
+    %% Merge NewRing1 and NewRing2 (how?)
+
+    %% Don't see any obvious way to do real ring manipulations via
+    %% riak_core, ETS pops up everywhere. Going to have to fake some
+    %% ring management. Elements of the record that we need:
+    %%   members (for riak_core_ring:get/update_member_meta/all_members)
+    %%   also all capabilities are stashed in the members list
+    %%   {node, {valid, [{node, vclock}],
+    %%                  [{'$riak_capabilities', [caplist]}]}]}}
+    %%
+    %% As far as I can tell, that's the only data component of the
+    %% ring the code needs
+
+    %% Call `tick' with merged ring ID and the merged ring
+    %% against both servers
+
+    %% Verify capabilities make sense
 
 -endif.
