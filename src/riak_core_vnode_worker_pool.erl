@@ -50,6 +50,7 @@
 
 %% API
 -export([start_link/5, stop/2, shutdown_pool/2, handle_work/3]).
+-export([start_worker/1]).
 
 -ifdef(PULSE).
 -compile(export_all).
@@ -69,6 +70,9 @@ start_link(WorkerMod, PoolSize, VNodeIndex, WorkerArgs, WorkerProps) ->
 
 handle_work(Pid, Work, From) ->
     gen_fsm:send_event(Pid, {work, Work, From}).
+
+start_worker(Pid) ->
+    gen_fsm:send_all_state_event(Pid, worker_start).
 
 stop(Pid, Reason) ->
     gen_fsm:sync_send_all_state_event(Pid, {stop, Reason}).

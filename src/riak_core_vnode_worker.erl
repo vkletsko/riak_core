@@ -58,7 +58,7 @@ handle_work(Worker, Work, From, Caller) ->
 init([Module, VNodeIndex, WorkerArgs, WorkerProps, Caller]) ->
     {ok, WorkerState} = Module:init_worker(VNodeIndex, WorkerArgs, WorkerProps),
     %% let the pool queue manager know there might be a worker to checkout
-    gen_fsm:send_all_state_event(Caller, worker_start),
+    riak_core_vnode_worker_pool:start_worker(Caller),
     {ok, #state{module=Module, modstate=WorkerState}}.
 
 handle_call(Event, _From, State) ->
