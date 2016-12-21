@@ -75,7 +75,7 @@ handle_cast({work, Work, WorkFrom, Caller},
             NS
     end,
     %% check the worker back into the pool
-    gen_fsm:send_all_state_event(Caller, {checkin, self()}),
+    riak_core_vnode_worker_pool:checkin_worker(Caller, self()),
     {noreply, State#state{modstate=NewModState}};
 handle_cast(_Event, State) ->
     {noreply, State}.

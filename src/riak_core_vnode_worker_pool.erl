@@ -50,7 +50,8 @@
 
 %% API
 -export([start_link/5, stop/2, shutdown_pool/2, handle_work/3]).
--export([start_worker/1]).
+-export([start_worker/1,
+         checkin_worker/2]).
 
 -ifdef(PULSE).
 -compile(export_all).
@@ -73,6 +74,9 @@ handle_work(Pid, Work, From) ->
 
 start_worker(Pid) ->
     gen_fsm:send_all_state_event(Pid, worker_start).
+
+checkin_worker(Pid, WorkerPid) ->
+    gen_fsm:send_all_state_event(Pid, {checkin, WorkerPid}).
 
 stop(Pid, Reason) ->
     gen_fsm:sync_send_all_state_event(Pid, {stop, Reason}).
