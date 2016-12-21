@@ -34,7 +34,9 @@
 
 -record(state, {
         module :: atom(),
-        modstate :: any()
+        modstate :: any(),
+        caller :: pid(),
+        task_pid :: pid()
     }).
 
 -spec behaviour_info(atom()) -> 'undefined' | [{atom(), arity()}].
@@ -55,6 +57,9 @@ handle_work(Worker, Work, From) ->
 handle_work(Worker, Work, From, Caller) ->
     gen_server:cast(Worker, {work, Work, From, Caller}).
 
+work_done(Worker, ModState) ->
+    gen_server:cast(Worker, {work_done, ModState}).
+
 init([Module, VNodeIndex, WorkerArgs, WorkerProps, Caller]) ->
     {ok, WorkerState} = Module:init_worker(VNodeIndex, WorkerArgs, WorkerProps),
     %% let the pool queue manager know there might be a worker to checkout
@@ -65,18 +70,13 @@ handle_call(Event, _From, State) ->
     lager:debug("Vnode worker received synchronous event: ~p.", [Event]),
     {reply, ok, State}.
 
-handle_cast({work, Work, WorkFrom, Caller},
-            #state{module = Mod, modstate = ModState} = State) ->
-    NewModState = case Mod:handle_work(Work, WorkFrom, ModState) of
-        {reply, Reply, NS} ->
-            riak_core_vnode:reply(WorkFrom, Reply),
-            NS;
-        {noreply, NS} ->
-            NS
-    end,
+handle_cast({work, Work, WorkFrom, Caller}, State) ->
+    NewState = spawn_task(self(), Work, WorkFrom, State),
+    {noreply, NewState#state{caller=Caller}};
+handle_cast({work_done, NewModState}, #state{caller=Caller}=State) ->
     %% check the worker back into the pool
     riak_core_vnode_worker_pool:checkin_worker(Caller, self()),
-    {noreply, State#state{modstate=NewModState}};
+    {noreply, State#state{modstate=NewModState, caller=undefined, task_pid=undefined}};
 handle_cast(_Event, State) ->
     {noreply, State}.
 
@@ -89,3 +89,20 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+spawn_task(WorkerPid, Work, WorkFrom, #state{modstate=ModState, module=Mod}= State) ->
+    TaskPid= spawn_link( fun() ->
+                                 execute_work(WorkerPid, Work, WorkFrom, ModState, Mod)
+                         end ),
+    State#state{task_pid = TaskPid}.
+
+execute_work(WorkerPid, Work, WorkFrom, ModState, Mod) ->
+    NewModState = 
+        case Mod:handle_work(Work, WorkFrom, ModState) of
+            {reply, Reply, NS} ->
+                riak_core_vnode:reply(WorkFrom, Reply),
+                NS;
+            {noreply, NS} ->
+                NS
+        end,
+    work_done(WorkerPid, NewModState).
+    
