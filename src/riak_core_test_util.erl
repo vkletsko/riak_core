@@ -35,7 +35,7 @@ stop_pid(Other) when not is_pid(Other) ->
     ok;
 stop_pid(Pid) ->
     unlink(Pid),
-    exit(Pid, shutdown),
+    exit(Pid, kill),
     ok = wait_for_pid(Pid).
 
 wait_for_pid(Pid) ->

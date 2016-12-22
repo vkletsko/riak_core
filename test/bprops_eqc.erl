@@ -307,6 +307,8 @@ stop_pid(Pid) ->
     exit(Pid, shutdown),
     ok = wait_for_pid(Pid).
 
+wait_for_pid(undefined) ->
+    ok;
 wait_for_pid(Pid) ->
     Mref = erlang:monitor(process, Pid),
     receive
