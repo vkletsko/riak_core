@@ -21,19 +21,18 @@
 %% queue. That is, this process maintains a queue of work, and checks
 %% workers out of a poolboy pool to consume it.
 %%
-%% The workers it uses send two messages to this process.
+%% The workers it manages use two functions to interact with this process.
 %%
-%% The first message is at startup, the bare atom
-%% `worker_started'. This is a clue to this process that a worker was
-%% just added to the poolboy pool, so a checkout request has a chance
-%% of succeeding. This is most useful after an old worker has exited -
-%% `worker_started' is a trigger guaranteed to arrive at a time that
-%% will mean an immediate poolboy:checkout will not beat the worker
-%% into the pool.
+%% The first function is at startup, `worker_started(PoolPid)`. This is a clue to
+%% this process (PoolPid),that a worker was just added to the poolboy pool, so a
+%% checkout request has a chance of succeeding. This is most useful after an old
+%% worker has exited - `worker_started/1' is a trigger guaranteed to arrive at a time
+%% that will mean an immediate poolboy:checkout will not beat the worker into the
+%% pool.
 %%
-%% The second message is when the worker finishes work it has been
-%% handed, the two-tuple, `{checkin, WorkerPid}'. This message gives
-%% this process the choice of whether to give the worker more work or
+%% The second function is when the worker finishes work it has been
+%% handed,  `checkin(PoolPid, WorkerPid)`. This message gives
+%% this process (PoolPid) the choice of whether to give the worker more work or
 %% check it back into poolboy's pool at this point. Note: the worker
 %% should *never* call poolboy:checkin itself, because that will
 %% confuse (or cause a race) with this module's checkout management.
