@@ -44,47 +44,49 @@ qc_test_() ->
     {timeout, 120, fun() -> ?assert(eqc:quickcheck(?QC_OUT(prop_main()))) end}.
 
 prop_main() ->
+    ?SETUP(
+        fun setup_cleanup/0,
+        ?FORALL(Cmds, commands(?MODULE),
+                begin
+                    %% Setup ETS table to recv broadcasts
+                    ets:new(?MODULE, [ordered_set, named_table, public]),
+                    ets:insert_new(?MODULE, {bcast_id, 0}),
+
+                    %% Start the watcher
+                    {ok, Pid} = riak_core_node_watcher:start_link(),
+
+                    %% Internal call to the node watcher to override default broadcast mechanism
+                    gen_server:call(riak_core_node_watcher, {set_bcast_mod, ?MODULE, on_broadcast}),
+
+                    %% Run the test
+                    {_H, _S, Res} = run_commands(?MODULE, Cmds),
+
+                    %% Unlink and kill our PID
+                    unlink(Pid),
+                    kill_and_wait(Pid),
+
+                    %% Delete the ETS table
+                    ets:delete(?MODULE),
+
+                    case Res of
+                        ok -> ok;
+                        _  -> io:format(user, "QC result: ~p\n", [Res])
+                    end,
+                    aggregate(command_names(Cmds), Res == ok)
+                end)).
+
+setup_cleanup() ->
     %% Initialize necessary env settings
     application:load(riak_core),
     application:set_env(riak_core, gossip_interval, 250),
     application:set_env(riak_core, ring_creation_size, 8),
-
-    %% Start supporting processes
     riak_core_eventhandler_sup:start_link(),
     riak_core_ring_events:start_link(),
     riak_core_node_watcher_events:start_link(),
-
-    %% meck used for health watch / threshold
     meck:new(mod_health, [non_strict, no_link]),
-
-    ?FORALL(Cmds, commands(?MODULE),
-            begin
-                %% Setup ETS table to recv broadcasts
-                ets:new(?MODULE, [ordered_set, named_table, public]),
-                ets:insert_new(?MODULE, {bcast_id, 0}),
-
-                %% Start the watcher
-                {ok, Pid} = riak_core_node_watcher:start_link(),
-
-                %% Internal call to the node watcher to override default broadcast mechanism
-                gen_server:call(riak_core_node_watcher, {set_bcast_mod, ?MODULE, on_broadcast}),
-
-                %% Run the test
-                {_H, _S, Res} = run_commands(?MODULE, Cmds),
-
-                %% Unlink and kill our PID
-                unlink(Pid),
-                kill_and_wait(Pid),
-
-                %% Delete the ETS table
-                ets:delete(?MODULE),
-
-                case Res of
-                    ok -> ok;
-                    _  -> io:format(user, "QC result: ~p\n", [Res])
-                end,
-                aggregate(command_names(Cmds), Res == ok)
-            end).
+    fun() ->
+        meck:unload(mod_health)
+    end.
 
 
 %% ====================================================================

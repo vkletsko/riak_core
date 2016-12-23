@@ -339,42 +339,17 @@ weight(_S, _Cmd) -> 1.
 %% @doc the property
 prop_btype_invariant() ->
 	    ?SETUP(
-            fun setup_cleanup/0,
+            fun bucket_eqc_utils:setup_cleanup/0,
         ?FORALL(Cmds, commands(?MODULE),
                 aggregate(command_names(Cmds),
                           ?TRAPEXIT(
                              begin
-                                 {H, S, Res} = run_commands(?MODULE,Cmds),
-                                 pretty_commands(?MODULE, Cmds, {H, S, Res},
-                                                 Res == ok)
-                             end)))).
-
-setup_cleanup() ->
-    meck:new(riak_core_capability, []),
-    meck:expect(riak_core_capability, get,
-                fun({riak_core, bucket_types}) -> true;
-                   (X) -> meck:passthrough([X]) end),
-    riak_core_test_util:stop_pid(whereis(riak_core_ring_events)),
-    riak_core_test_util:stop_pid(whereis(riak_core_ring_manager)),
-    application:set_env(riak_core, claimant_tick, 4294967295),
-    application:set_env(riak_core, broadcast_lazy_timer, 4294967295),
-    application:set_env(riak_core, broadcast_exchange_timer, 4294967295),
-    application:set_env(riak_core, metadata_hashtree_timer, 4294967295),
-    {ok, RingEvents} = riak_core_ring_events:start_link(),
-    {ok, _RingMgr} = riak_core_ring_manager:start_link(test),
-    {ok, Claimant} = riak_core_claimant:start_link(),
-    {ok, MetaMgr} = riak_core_metadata_manager:start_link([{data_dir, "./btypes_eqc_meta"}]),
-    {ok, Hashtree} = riak_core_metadata_hashtree:start_link("./btypes_eqc_meta/trees"),
-    {ok, Broadcast} = riak_core_broadcast:start_link(),
-    fun() ->
-        meck:unload(riak_core_capability),
-	riak_core_test_util:stop_pid(Broadcast),
-	riak_core_test_util:stop_pid(Hashtree),
-	riak_core_test_util:stop_pid(MetaMgr),
-	riak_core_test_util:stop_pid(Claimant),
-	riak_core_ring_manager:stop(),
-	riak_core_test_util:stop_pid(RingEvents),
-	os:cmd("rm -r ./btypes_eqc_meta")
-    end.
+                                 {H, S, Res} = bucket_eqc_utils:per_test_setup([], fun() ->
+                                    run_commands(?MODULE,Cmds)
+                                     end),
+                             pretty_commands(?MODULE, Cmds, {H, S, Res},
+                                             Res == ok)
+                             end
+                          )))).
 
 -endif.
