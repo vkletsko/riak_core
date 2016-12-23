@@ -92,7 +92,7 @@ stop_servers(_Pid) ->
     %% and there may be a pending request to start the vnode.
     riak_core_test_util:stop_pid(whereis(mock_vnode_master)),
     riak_core_test_util:stop_pid(whereis(riak_core_vnode_manager)),
-    riak_core_test_util:stop_pid(whereis(riak_core_vnode_events)),
+    riak_core_test_util:stop_pid(whereis(riak_core_ring_events)),
     riak_core_test_util:stop_pid(whereis(riak_core_vnode_sup)),
     application:stop(exometer),
     application:stop(lager),
