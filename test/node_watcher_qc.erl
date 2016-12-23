@@ -62,8 +62,7 @@ prop_main() ->
                     {_H, _S, Res} = run_commands(?MODULE, Cmds),
 
                     %% Unlink and kill our PID
-                    unlink(Pid),
-                    kill_and_wait(Pid),
+                    riak_core_test_util:stop_pid(Pid),
 
                     %% Delete the ETS table
                     ets:delete(?MODULE),
@@ -77,16 +76,23 @@ prop_main() ->
 
 setup_cleanup() ->
     %% Initialize necessary env settings
+    riak_core_test_util:stop_pid(whereis(riak_core_node_watcher)),
     application:load(riak_core),
     application:set_env(riak_core, gossip_interval, 250),
     application:set_env(riak_core, ring_creation_size, 8),
-    riak_core_eventhandler_sup:start_link(),
-    riak_core_ring_events:start_link(),
-    riak_core_node_watcher_events:start_link(),
+    {ok, RingEventHandlerSup} = riak_core_eventhandler_sup:start_link(),
+    {ok, RingEvents} = riak_core_ring_events:start_link(),
+    {ok, NodeWatcherEvents} = riak_core_node_watcher_events:start_link(),
     meck:unload(),
     meck:new(mod_health, [non_strict, no_link]),
     fun() ->
-        meck:unload(mod_health)
+        meck:unload(mod_health),
+        unlink(RingEventHandlerSup),
+        unlink(RingEvents),
+        unlink(NodeWatcherEvents),
+        riak_core_test_util:stop_pid(RingEventHandlerSup),
+        riak_core_test_util:stop_pid(RingEvents),
+        riak_core_test_util:stop_pid(NodeWatcherEvents)
     end.
 
 
@@ -382,7 +388,7 @@ local_service_down(Service) ->
 local_service_kill(Service, State) ->
     Avsn0 = riak_core_node_watcher:avsn(),
     Pid = orddict:fetch(Service, State#state.service_pids),
-    kill_and_wait(Pid),
+    riak_core_test_util:stop_pid(Pid),
     wait_for_avsn(Avsn0).
 
 local_node_up() ->
@@ -584,15 +590,6 @@ broadcasts() ->
     Bcasts = [list_to_tuple(L) || L <- ets:match(?MODULE, {'_', '$1', '$2'})],
     ets:match_delete(?MODULE, {'_', '_', '_'}),
     Bcasts.
-
-
-kill_and_wait(Pid) ->
-    Mref = erlang:monitor(process, Pid),
-    exit(Pid, kill),
-    receive
-        {'DOWN', Mref, _, _, _} ->
-            ok
-    end.
 
 wait_for_avsn(Avsn0) ->
     case riak_core_node_watcher:avsn() of
