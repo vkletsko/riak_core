@@ -83,6 +83,7 @@ setup_cleanup() ->
     riak_core_eventhandler_sup:start_link(),
     riak_core_ring_events:start_link(),
     riak_core_node_watcher_events:start_link(),
+    meck:unload(),
     meck:new(mod_health, [non_strict, no_link]),
     fun() ->
         meck:unload(mod_health)

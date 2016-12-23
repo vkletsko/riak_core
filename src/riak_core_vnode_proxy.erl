@@ -356,6 +356,7 @@ overload_test_() ->
     {timeout, 900, {foreach,
      fun() ->
              VnodePid = spawn(fun fake_loop/0),
+             meck:unload(),
              meck:new(riak_core_vnode_manager, [passthrough]),
              meck:expect(riak_core_vnode_manager, get_vnode_pid,
                          fun(_Index, fakemod) -> {ok, VnodePid};

@@ -45,6 +45,7 @@ per_test_setup(DefaultBucketProps, TestFun) ->
     end.
 
 setup_cleanup() ->
+    meck:unload(),
     meck:new(riak_core_capability, []),
     meck:expect(riak_core_capability, get,
                 fun({riak_core, bucket_types}) -> true;
