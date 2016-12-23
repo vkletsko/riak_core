@@ -1941,7 +1941,7 @@ resize_xfer_test_() ->
              meck:expect(riak_core, vnode_modules,
                          fun() -> [{some_app, fake_vnode}, {other_app, other_vnode}] end)
      end,
-     fun(_) -> meck:unload(riak_core) end,
+     fun(_) -> meck:unload() end,
      fun test_resize_xfers/0}.
 
 test_resize_xfers() ->

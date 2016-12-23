@@ -75,24 +75,29 @@ prop_main() ->
                 end)).
 
 setup_cleanup() ->
+    meck:unload(),
     %% Initialize necessary env settings
     riak_core_test_util:stop_pid(whereis(riak_core_node_watcher)),
     application:load(riak_core),
     application:set_env(riak_core, gossip_interval, 250),
     application:set_env(riak_core, ring_creation_size, 8),
-    {ok, RingEventHandlerSup} = riak_core_eventhandler_sup:start_link(),
-    {ok, RingEvents} = riak_core_ring_events:start_link(),
-    {ok, NodeWatcherEvents} = riak_core_node_watcher_events:start_link(),
-    meck:unload(),
+    RingEventHandlerSup = maybe_start_link(riak_core_eventhandler_sup),
+    RingEvents = maybe_start_link(riak_core_ring_events),
+    NodeWatcherEvents = maybe_start_link(riak_core_node_watcher_events),
     meck:new(mod_health, [non_strict, no_link]),
     fun() ->
-        meck:unload(mod_health),
         unlink(RingEventHandlerSup),
         unlink(RingEvents),
         unlink(NodeWatcherEvents),
         riak_core_test_util:stop_pid(RingEventHandlerSup),
         riak_core_test_util:stop_pid(RingEvents),
         riak_core_test_util:stop_pid(NodeWatcherEvents)
+    end.
+
+maybe_start_link(Mod) ->
+    case Mod:start_link() of
+        {ok, Pid} -> Pid;
+        {error, {already_started, Pid}} -> Pid
     end.
 
 

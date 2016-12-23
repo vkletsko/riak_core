@@ -372,8 +372,6 @@ overload_test_() ->
              {VnodePid, ProxyPid}
      end,
      fun({VnodePid, ProxyPid}) ->
-             meck:unload(riak_core_vnode_manager),
-             meck:unload(fakemod),
              unlink(VnodePid),
              unlink(ProxyPid),
              exit(VnodePid, kill),

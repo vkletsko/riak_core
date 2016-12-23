@@ -1098,9 +1098,7 @@ pool_death_test() ->
     exit(Pid, normal),
     wait_for_process_death(Pid),
     meck:validate(test_pool_mod),
-    meck:validate(test_vnode),
-    meck:unload(test_pool_mod),
-    meck:unload(test_vnode).
+    meck:validate(test_vnode).
 
 wait_for_process_death(Pid) ->
     wait_for_process_death(Pid, is_process_alive(Pid)).

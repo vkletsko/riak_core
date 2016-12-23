@@ -52,5 +52,5 @@ setup_cleanup() ->
                 fun({riak_core, bucket_types}) -> true;
                    (X) -> meck:passthrough([X]) end),
     fun() ->
-        meck:unload(riak_core_capability)
+        ok
     end.
