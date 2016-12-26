@@ -1,5 +1,6 @@
+%% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2007-2011 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,226 +18,492 @@
 %%
 %% -------------------------------------------------------------------
 
-%% @doc This is a wrapper around a poolboy pool, that implements a
-%% queue. That is, this process maintains a queue of work, and checks
-%% workers out of a poolboy pool to consume it.
 %%
-%% The workers it uses send two messages to this process.
+%% @doc This module is deprecated and will be removed in v3!
 %%
-%% The first message is at startup, the bare atom
-%% `worker_started'. This is a clue to this process that a worker was
-%% just added to the poolboy pool, so a checkout request has a chance
-%% of succeeding. This is most useful after an old worker has exited -
-%% `worker_started' is a trigger guaranteed to arrive at a time that
-%% will mean an immediate poolboy:checkout will not beat the worker
-%% into the pool.
+%% This is a facade over {@link riak_core_job_manager}, and ALL new code should
+%% use that API, not this one.
 %%
-%% The second message is when the worker finishes work it has been
-%% handed, the two-tuple, `{checkin, WorkerPid}'. This message gives
-%% this process the choice of whether to give the worker more work or
-%% check it back into poolboy's pool at this point. Note: the worker
-%% should *never* call poolboy:checkin itself, because that will
-%% confuse (or cause a race) with this module's checkout management.
+%% @deprecated Use module {@link riak_core_job_manager}.
+%%
 -module(riak_core_vnode_worker_pool).
+-deprecated(module).
 
--behaviour(gen_fsm).
+-behaviour(gen_server).
 
-%% gen_fsm callbacks
--export([init/1, handle_event/3, handle_sync_event/4, handle_info/3,
-        terminate/3, code_change/4]).
+% Public API
+-export([
+    handle_work/3,
+    shutdown_pool/2,
+    start_link/5,
+    stats/1,
+    stop/2
+]).
 
-%% gen_fsm states
--export([ready/2, queueing/2, ready/3, queueing/3, shutdown/2, shutdown/3]).
+% Public Types
+-export_type([
+    stat/0,
+    stat_key/0,
+    stat_val/0
+]).
 
-%% API
--export([start_link/5, stop/2, shutdown_pool/2, handle_work/3]).
+% Private API
+-export([
+    job_killed/4,
+    work_cleanup/1,
+    work_main/3,
+    work_setup/4
+]).
 
--ifdef(PULSE).
--compile(export_all).
--compile({parse_transform, pulse_instrument}).
--compile({pulse_replace_module, [{gen_fsm, pulse_gen_fsm}]}).
--endif.
+%% Gen_server API
+-export([
+    code_change/3,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    init/1,
+    terminate/2
+]).
+
+-include("riak_core_job_internal.hrl").
+
+%% ===================================================================
+%% Internal Types
+%% ===================================================================
+
+-define(StatsDict,  orddict).
+-type stats()   ::  ?orddict_t(stat_key(), stat_val()).
+
+% This is filled in incrementally, so it allows a lot of undefined values.
+-record(ctx, {
+    vnode       ::  partition(),
+    pool        ::  facade() | undefined,
+    mgr_key     ::  riak_core_job_manager:mgr_key() | undefined,
+    wmod        ::  wmodule(),
+    wref        ::  jobkey() | undefined,
+    state       ::  wstate() | undefined
+}).
+
+-record(jobrec, {
+    key         ::  jobkey(),
+    id          ::  jobid()
+}).
 
 -record(state, {
-        queue = queue:new(),
-        pool :: pid(),
-        monitors = [] :: list(),
-        shutdown :: undefined | {pid(), reference()}
-    }).
+    ctx                             ::  ctx(),
+    wargs                           ::  term(),
+    wprops                          ::  term(),
+    jobs        = []                ::  [jobrec()],
+    shutdown    = false             ::  boolean(),
+    stats       = ?StatsDict:new()  ::  stats()     % stat_key() => stat_val()
+}).
 
-start_link(WorkerMod, PoolSize, VNodeIndex, WorkerArgs, WorkerProps) ->
-    gen_fsm:start_link(?MODULE, [WorkerMod, PoolSize,  VNodeIndex, WorkerArgs, WorkerProps], []).
+-type ctx()     ::  #ctx{}.
+-type jobid()   ::  riak_core_job:gid().
+-type jobkey()  ::  reference().
+-type jobrec()  ::  #jobrec{}.
+-type state()   ::  #state{}.
+-type wstate()  ::  term().     % riak_core_vnode_worker state
 
-handle_work(Pid, Work, From) ->
-    gen_fsm:send_event(Pid, {work, Work, From}).
+%% ===================================================================
+%% Public Types
+%% ===================================================================
 
-stop(Pid, Reason) ->
-    gen_fsm:sync_send_all_state_event(Pid, {stop, Reason}).
+-type facade() :: pid().
+% A {@link riak_core_vnode_worker_pool} process.
 
-%% wait for all the workers to finish any current work
-shutdown_pool(Pid, Wait) ->
-    gen_fsm:sync_send_all_state_event(Pid, {shutdown, Wait}, infinity).
+-type stat() :: {stat_key(), stat_val()}.
+%% A single statistic.
 
-init([WorkerMod, PoolSize, VNodeIndex, WorkerArgs, WorkerProps]) ->
-    {ok, Pid} = poolboy:start_link([{worker_module, riak_core_vnode_worker},
-            {worker_args, [VNodeIndex, WorkerArgs, WorkerProps, self()]},
-            {worker_callback_mod, WorkerMod},
-            {size, PoolSize}, {max_overflow, 0}]),
-    {ok, ready, #state{pool=Pid}}.
+-type stat_key() :: atom() | tuple().
+%% The Key by which a statistic is referenced.
 
-ready(_Event, _From, State) ->
-    {reply, ok, ready, State}.
+-type stat_val() :: term().
+%% The value of a statistic.
 
-ready({work, Work, From} = Msg, #state{pool=Pool, queue=Q, monitors=Monitors} = State) ->
-    case poolboy:checkout(Pool, false) of
-        full ->
-            {next_state, queueing, State#state{queue=queue:in(Msg, Q)}};
-        Pid when is_pid(Pid) ->
-            NewMonitors = monitor_worker(Pid, From, Work, Monitors),
-            riak_core_vnode_worker:handle_work(Pid, Work, From),
-            {next_state, ready, State#state{monitors=NewMonitors}}
-    end;
-ready(_Event, State) ->
-    {next_state, ready, State}.
+-type wmodule() :: module().
+% Module implementing {@link riak_core_vnode_worker} behaviour.
 
-queueing(_Event, _From, State) ->
-    {reply, ok, queueing, State}.
+-type workrec() :: tuple().
+% A unit of work for {@link riak_core_vnode_worker:handle_work/3}.
 
-queueing({work, _Work, _From} = Msg, #state{queue=Q} = State) ->
-    {next_state, queueing, State#state{queue=queue:in(Msg, Q)}};
-queueing(_Event, State) ->
-    {next_state, queueing, State}.
+%% ===================================================================
+%% Public API
+%% ===================================================================
 
-shutdown(_Event, _From, State) ->
-    {reply, ok, shutdown, State}.
+-spec handle_work(
+    Pool :: facade(), Work :: workrec(), From :: sender())
+        -> ok | {error, term()}.
+%%
+%% @doc Submits the specified Work to the Pool.
+%%
+handle_work(Pool, Work, From) ->
+    gen_server:call(Pool, {work, Work, From}).
 
-shutdown({work, _Work, From}, State) ->
-    %% tell the process requesting work that we're shutting down
-    riak_core_vnode:reply(From, {error, vnode_shutdown}),
-    {next_state, shutdown, State};
-shutdown(_Event, State) ->
-    {next_state, shutdown, State}.
+-spec shutdown_pool(
+    Pool :: facade(), Timeout :: non_neg_integer() | infinity)
+        -> ok | {error, term()}.
+%%
+%% @doc Shuts the Pool down.
+%%
+%% Running and queued work is killed or cancelled, respectively.
+%%
+shutdown_pool(Pool, Timeout)
+        when not (erlang:is_pid(Pool)
+        andalso (Timeout =:= infinity
+        orelse  (erlang:is_integer(Timeout) andalso Timeout >= 0))) ->
+    erlang:error(badarg, [Pool, Timeout]);
+shutdown_pool(Pool, infinity) ->
+    sync_shutdown(Pool, 1 bsl 32);
+shutdown_pool(Pool, Timeout) when Timeout > 1 bsl 32 ->
+    sync_shutdown(Pool, 1 bsl 32);
+shutdown_pool(Pool, Timeout) ->
+    sync_shutdown(Pool, Timeout).
 
-handle_event({checkin, Pid}, shutdown, #state{pool=Pool, monitors=Monitors0} = State) ->
-    Monitors = demonitor_worker(Pid, Monitors0),
-    poolboy:checkin(Pool, Pid),
-    case Monitors of
-        [] -> %% work all done, time to exit!
-            {stop, shutdown, State};
+-spec start_link(
+    WorkerMod   :: wmodule(),
+    PoolSize    :: non_neg_integer(),
+    VNodeIndex  :: partition(),
+    WorkerArgs  :: term(),
+    WorkerProps :: term())
+        -> {ok, pid()} | {error, term()}.
+%%
+%% @doc Starts a worker pool, linked to the calling process.
+%%
+%% Note that the PoolSize parameter is ignored entirely - the
+%% riak_core_job_manager configuration applies.
+%%
+start_link(WorkerMod, _PoolSize, VNodeIndex, WorkerArgs, WorkerProps) ->
+    Context = #ctx{
+        vnode   = VNodeIndex,
+        pool    = undefined,
+        mgr_key = undefined,
+        wmod    = WorkerMod,
+        wref    = undefined,
+        state   = undefined
+    },
+    State = #state{
+        ctx     = Context,
+        wargs   = WorkerArgs,
+        wprops  = WorkerProps
+    },
+    gen_server:start_link(?MODULE, State, []).
+
+-spec stats(Pool :: facade()) -> [stat()] | {error, term()}.
+%%
+%% @doc Shuts the Pool down.
+%%
+stats(Pool) ->
+    gen_server:call(Pool, stats).
+
+-spec stop(Pool :: facade(), Reason :: term()) -> ok.
+%%
+%% @doc Shuts the Pool down.
+%%
+stop(Pool, Reason) ->
+    gen_server:cast(Pool, {stop, Reason}).
+
+%% ===================================================================
+%% Private API
+%% ===================================================================
+
+-spec job_killed(
+    Reason :: term(), Context :: ctx(), Origin :: sender(), Work :: tuple())
+        -> ok.
+%% @private
+%
+% riak_core_job:job.killed callback
+% The old worker pool wasn't very informative, so map things to the couple of
+% messages it could send.
+%
+job_killed(_, #ctx{pool = Owner, wref = Ref}, ignore, _) ->
+    gen_server:cast(Owner, {done, Ref});
+job_killed({?JOB_ERR_CANCELED, ?JOB_ERR_SHUTTING_DOWN} = Reason,
+        Context, Origin, Work) ->
+    riak_core_vnode:reply(Origin, {error, vnode_shutdown}),
+    job_killed(Reason, Context, ignore, Work);
+job_killed({_, Info} = Reason, Context, Origin, Work) ->
+    riak_core_vnode:reply(Origin, {error, {worker_crash, Info, Work}}),
+    job_killed(Reason, Context, ignore, Work);
+job_killed(Reason, Context, Origin, Work) ->
+    riak_core_vnode:reply(Origin, {error, {worker_crash, Reason, Work}}),
+    job_killed(Reason, Context, ignore, Work).
+
+-spec work_setup(
+    MgrKey  :: riak_core_job_manager:mgr_key(),
+    Context :: ctx(),
+    WArgs   :: term(),
+    WProps  :: term())
+        -> ctx().
+%% @private
+%
+% riak_core_job:job.work.setup callback
+%
+work_setup(MgrKey, #ctx{vnode = VNode, wmod = WMod} = Ctx, WArgs, WProps) ->
+    {ok, WState} = WMod:init_worker(VNode, WArgs, WProps),
+    Ctx#ctx{mgr_key = MgrKey, state = WState}.
+
+-spec work_main(Context :: ctx(), Work :: tuple(), Origin :: sender())
+        -> ctx().
+%% @private
+%
+% riak_core_job:job.work.main callback
+%
+work_main(#ctx{wmod = WMod, state = WStateIn} = Ctx, Work, Origin) ->
+    WState = case WMod:handle_work(Work, Origin, WStateIn) of
+        {reply, Reply, NewWState} ->
+            riak_core_vnode:reply(Origin, Reply),
+            NewWState;
+        {noreply, NewWState} ->
+            NewWState
+    end,
+    Ctx#ctx{state = WState}.
+
+-spec work_cleanup(Context :: ctx()) -> term().
+%% @private
+%
+% riak_core_job:job.work.cleanup callback
+%
+work_cleanup(#ctx{pool = Owner, wref = WRef}) ->
+    gen_server:cast(Owner, {done, WRef}).
+
+%% ===================================================================
+%% Gen_server API
+%% ===================================================================
+
+-spec code_change(term(), state(), term()) -> {ok, state()}.
+%% @private
+%
+% don't care, carry on
+%
+code_change(_, State, _) ->
+    {ok, State}.
+
+-spec handle_call(Msg :: term(), From :: {pid(), term()}, State :: state())
+        -> {reply, term(), state()}.
+%% @private
+%
+% handle_work(facade(), workrec(), sender()) -> ok | {error, term()}
+%
+handle_call({work, _Work, Origin}, _, #state{shutdown = true} = State) ->
+    riak_core_vnode:reply(Origin, {error, vnode_shutdown}),
+    {reply, ok, State};
+
+handle_call({work, Work, Origin}, _,
+        #state{ctx = Context, wargs = WArgs, wprops = WProps} = State) ->
+    Ref = erlang:make_ref(),
+    Ctx = Context#ctx{wref = Ref},
+    Wrk = riak_core_job:work([
+        {setup,     {?MODULE, work_setup,   [Ctx, WArgs, WProps]}},
+        {main,      {?MODULE, work_main,    [Work, Origin]}},
+        {cleanup,   {?MODULE, work_cleanup, []}}
+    ]),
+    Job = riak_core_job:job([
+        {module,    ?MODULE},
+        {class,     {Ctx#ctx.wmod, legacy}},
+        {cid,       {Ctx#ctx.wmod, Ctx#ctx.vnode}},
+        {work,      Wrk},
+        {from,      Ctx#ctx.pool},
+        {killed,    {?MODULE, job_killed, [Ctx, Origin, Work]}}
+    ]),
+    Ret = case riak_core_job_manager:submit(Job) of
+        ok ->
+            JR = #jobrec{key = Ref, id = riak_core_job:gid(Job)},
+            {reply, ok, State#state{jobs = [JR | State#state.jobs]}};
+        {error, ?JOB_ERR_SHUTTING_DOWN} ->
+            {reply, {error, vnode_shutdown}, State};
+        {error, ?JOB_ERR_QUEUE_OVERFLOW}  ->
+            {reply, {error, vnode_overload}, State};
+        {error, ?JOB_ERR_REJECTED}  ->
+            {reply, {error, vnode_rejected}, State};
+        {error, _} = Error ->
+            {reply, Error, State}
+    end,
+    case Ret of
+        {_, {error, _} = Reply, _} ->
+            riak_core_vnode:reply(Origin, Reply),
+            Ret;
         _ ->
-            {next_state, shutdown, State#state{monitors=Monitors}}
+            Ret
     end;
-handle_event({checkin, Worker}, _, #state{pool = Pool, queue=Q, monitors=Monitors} = State) ->
-    case queue:out(Q) of
-        {{value, {work, Work, From}}, Rem} ->
-            %% there is outstanding work to do - instead of checking
-            %% the worker back in, just hand it more work to do
-            NewMonitors = monitor_worker(Worker, From, Work, Monitors),
-            riak_core_vnode_worker:handle_work(Worker, Work, From),
-            {next_state, queueing, State#state{queue=Rem,
-                                               monitors=NewMonitors}};
-        {empty, Empty} ->
-            NewMonitors = demonitor_worker(Worker, Monitors),
-            poolboy:checkin(Pool, Worker),
-            {next_state, ready, State#state{queue=Empty, monitors=NewMonitors}}
-    end;
-handle_event(worker_start, StateName, #state{pool=Pool, queue=Q, monitors=Monitors}=State) ->
-    %% a new worker just started - if we have work pending, try to do it
-    case queue:out(Q) of
-        {{value, {work, Work, From}}, Rem} ->
-            case poolboy:checkout(Pool, false) of
-                full ->
-                    {next_state, queueing, State};
-                Pid when is_pid(Pid) ->
-                    NewMonitors = monitor_worker(Pid, From, Work, Monitors),
-                    riak_core_vnode_worker:handle_work(Pid, Work, From),
-                    {next_state, queueing, State#state{queue=Rem, monitors=NewMonitors}}
-            end;
-        {empty, _} ->
-            %% StateName might be either 'ready' or 'shutdown'
-            {next_state, StateName, State}
-    end;
-handle_event(_Event, StateName, State) ->
-    {next_state, StateName, State}.
+%
+% stats(Pool :: facade()) -> [stat()] | {error, term()}.
+%
+handle_call(stats, _, State) ->
+    Status = if State#state.shutdown -> stopping; ?else -> active end,
+    Result = [
+        {status,  Status},
+        {jobs,    erlang:length(State#state.jobs)}
+        | ?StatsDict:to_list(State#state.stats) ],
+    {reply, Result, State};
+%
+% unrecognized message
+%
+handle_call(Msg, {Who, _}, State) ->
+    _ = lager:error(
+        "~s received unhandled call from ~p: ~p", [?MODULE, Who, Msg]),
+    {reply, {error, {badarg, Msg}}, inc_stat(unhandled, State)}.
 
-handle_sync_event({stop, Reason}, _From, _StateName, State) ->
-    {stop, Reason, ok, State}; 
-handle_sync_event({shutdown, Time}, From, _StateName, #state{queue=Q,
-        monitors=Monitors} = State) ->
-    discard_queued_work(Q),
-    case Monitors of
-        [] ->
-            {stop, shutdown, ok, State};
-        _ ->
-            case Time of
-                infinity ->
-                    ok;
-                _ when is_integer(Time) ->
-                    erlang:send_after(Time, self(), shutdown),
-                    ok
-            end,
-            {next_state, shutdown, State#state{shutdown=From, queue=queue:new()}}
-    end;
-handle_sync_event(_Event, _From, StateName, State) ->
-    {reply, {error, unknown_message}, StateName, State}.
-
-handle_info({'DOWN', _Ref, _, Pid, Info}, StateName, #state{monitors=Monitors} = State) ->
-    %% remove the listing for the dead worker
-    case lists:keyfind(Pid, 1, Monitors) of
-        {Pid, _, From, Work} ->
-            riak_core_vnode:reply(From, {error, {worker_crash, Info, Work}}),
-            NewMonitors = lists:keydelete(Pid, 1, Monitors),
-            %% trigger to do more work will be 'worker_start' message
-            %% when poolboy replaces this worker (if not a 'checkin'
-            %% or 'handle_work')
-            {next_state, StateName, State#state{monitors=NewMonitors}};
-        false ->
-            {next_state, StateName, State}
-    end;
-handle_info(shutdown, shutdown, #state{monitors=Monitors} = State) ->
-    %% we've waited too long to shutdown, time to force the issue.
-    _ = [riak_core_vnode:reply(From, {error, vnode_shutdown}) || 
-            {_, _, From, _} <- Monitors],
+-spec handle_cast(Msg :: term(), State :: state())
+        -> {noreply, state()} | {stop, term(), state()}.
+%% @private
+%
+% no matter what arrives, if we've been asked to shut down and don't have any
+% jobs running, just leave
+%
+handle_cast(_, #state{shutdown = true, jobs = []} = State) ->
     {stop, shutdown, State};
-handle_info(_Info, StateName, State) ->
-    {next_state, StateName, State}.
+%
+% job_killed/4
+% work_cleanup/1
+%
+% This is how our Job's worker wrapper tells us it's done.
+% Special case when shutting down and the last Job exits.
+%
+handle_cast({done, Ref}, #state{
+        shutdown = true, jobs = [#jobrec{key = Ref}]} = State) ->
+    {stop, shutdown, State#state{jobs = []}};
 
-terminate(_Reason, _StateName, #state{pool=Pool}) ->
-    %% stop poolboy
-    gen_fsm:sync_send_all_state_event(Pool, stop),
+handle_cast({done, Ref}, State) ->
+    {noreply, State#state{
+        jobs = lists:keydelete(Ref, #jobrec.key, State#state.jobs)}};
+%
+% There are multiple ways to receive this, but they all have the same result
+% - it's time to go.
+%
+handle_cast({shutdown = Why, 0}, State) ->
+    {stop, Why, State};
+%
+% shutdown_pool(Pool :: facade(), Timeout:: non_neg_integer() | infinity)
+% This is the initial shutdown message, so try to shut down asynchronously.
+%
+handle_cast({shutdown = Why, _}, #state{jobs = []} = State) ->
+    {stop, Why, State};
+
+handle_cast({shutdown, infinity}, #state{shutdown = false} = State) ->
+    % Only do this once to clear out queued jobs. With the shutdown flag set,
+    % we won't be sending any more.
+    Jobs = lists:filter(
+        fun(#jobrec{id = Id}) ->
+            case riak_core_job_manager:cancel(Id, false) of
+                {error, running, _} ->
+                    true;
+                {error, _} ->
+                    true;
+                _ ->
+                    false
+            end
+        end, State#state.jobs),
+    {noreply, State#state{shutdown = true, jobs = Jobs}};
+
+handle_cast({shutdown, Timeout}, #state{shutdown = false} = State) ->
+    {ok, _} = timer:apply_after(Timeout,
+        gen_server, cast, [erlang:self(), {shutdown, 0}]),
+    handle_cast({shutdown, infinity}, State);
+%
+% stop/2
+%
+handle_cast({stop, Why}, State) ->
+    {stop, Why, State};
+%
+% unrecognized message
+%
+handle_cast(Msg, State) ->
+    _ = lager:error("~s received unhandled cast: ~p", [?MODULE, Msg]),
+    {noreply, inc_stat(unhandled, State)}.
+
+-spec handle_info(term(), state())
+        -> {noreply, state()} | {stop, term(), state()}.
+%% @private
+%
+% no matter what arrives, if we've been asked to shut down and don't have any
+% jobs running, let handle_cast clean up and leave
+%
+handle_info(Msg, #state{shutdown = true, jobs = []} = State) ->
+    handle_cast(Msg, State);
+%
+% unrecognized message
+%
+handle_info(Msg, State) ->
+    _ = lager:error("~s received unhandled info: ~p", [?MODULE, Msg]),
+    {noreply, inc_stat(unhandled, State)}.
+
+-spec init(State :: state()) -> {ok, state()} | {stop, term()}.
+%% @private
+%
+% The incoming State is almost complete, just needs our Pid.
+%
+init(#state{ctx = Context} = State) ->
+    {ok, State#state{ctx = Context#ctx{pool = erlang:self()}}}.
+
+-spec terminate(normal | shutdown | {shutdown, term()} | term(), state())
+        -> ok.
+%% @private
+%
+% hopefully we got here via a controlled shutdown, just do the best we can ...
+%
+terminate(_Why, #state{jobs = []}) ->
+    ok;
+terminate(_Why, State) ->
+    % nothing we can do at this point but kill them off
+    _ = [riak_core_job_manager:cancel(Id, true)
+        || #jobrec{id = Id} <- State#state.jobs],
     ok.
 
-code_change(_OldVsn, StateName, State, _Extra) ->
-    {ok, StateName, State}.
+%% ===================================================================
+%% Internal
+%% ===================================================================
 
-%% Keep track of which worker we pair with what work/from and monitor the
-%% worker. Only active workers are tracked
-monitor_worker(Worker, From, Work, Monitors) ->
-    case lists:keyfind(Worker, 1, Monitors) of
-        {Worker, Ref, _OldFrom, _OldWork} ->
-            %% reuse old monitor and just update the from & work
-            lists:keyreplace(Worker, 1, Monitors, {Worker, Ref, From, Work});
-        false ->
-            Ref = erlang:monitor(process, Worker),
-            [{Worker, Ref, From, Work} | Monitors]
-    end.
+-spec inc_stat(stat_key() | [stat_key()], state()) -> state()
+        ;     (stat_key() | [stat_key()], stats()) -> stats().
+%
+% Increment one or more statistics counters.
+%
+inc_stat(Stat, #state{stats = Stats} = State) ->
+    State#state{stats = inc_stat(Stat, Stats)};
+inc_stat(Stat, Stats) ->
+    ?StatsDict:update_counter(Stat, 1, Stats).
+%%inc_stat(Stat, Stats) when not erlang:is_list(Stat) ->
+%%    ?StatsDict:update_counter(Stat, 1, Stats);
+%%inc_stat([Stat], Stats) ->
+%%    inc_stat(Stat, Stats);
+%%inc_stat([Stat | More], Stats) ->
+%%    inc_stat(More, inc_stat(Stat, Stats));
+%%inc_stat([], Stats) ->
+%%    Stats.
 
-demonitor_worker(Worker, Monitors) ->
-    case lists:keyfind(Worker, 1, Monitors) of
-        {Worker, Ref, _From, _Work} ->
-            erlang:demonitor(Ref),
-            lists:keydelete(Worker, 1, Monitors);
-        false ->
-            %% not monitored?
-            Monitors
-    end.
-
-discard_queued_work(Q) ->
-    case queue:out(Q) of
-        {{value, {work, _Work, From}}, Rem} ->
-            riak_core_vnode:reply(From, {error, vnode_shutdown}),
-            discard_queued_work(Rem);
-        {empty, _Empty} ->
+-spec sync_shutdown(Pool :: facade(), Timeout :: non_neg_integer())
+        -> ok | {error, term()}.
+%
+% Makes an async shutdown look synchronous.
+%
+sync_shutdown(Pool, Timeout) ->
+    %
+    % Allow a little extra time in case the Pool has to kill a bunch of jobs.
+    % Longer timeouts give us more wiggle room, but less need for it since
+    % most jobs will finish on their own.
+    %
+    {MonTO, PoolTO} = if
+        Timeout > 9999 ->
+            {(Timeout + 1000), (Timeout - 1000)};
+        Timeout > 4999 ->
+            {(Timeout + 677), (Timeout - 677)};
+        Timeout > 1999 ->
+            {(Timeout + 333), (Timeout - 333)};
+        ?else ->
+            {(Timeout + 500), Timeout}
+    end,
+    %
+    % Use monitor + cast to avoid a late message arriving from a call with
+    % async reply.
+    %
+    Mon = erlang:monitor(process, Pool),
+    gen_server:cast(Pool, {shutdown, PoolTO}),
+    receive
+        {'DOWN', Mon, _, _, _} ->
             ok
+    after
+        MonTO ->
+            _ = erlang:demonitor(Mon, [flush]),
+            {error, timeout}
     end.
-

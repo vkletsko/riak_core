@@ -2,7 +2,7 @@
 %%
 %% riak_core: Core Riak Application
 %%
-%% Copyright (c) 2007-2010 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -91,7 +91,6 @@ start_riak_core_sup() ->
             ok = register_capabilities(),
             ok = init_cli_registry(),
             ok = riak_core_throttle:init(),
-
             {ok, Pid};
         {error, Reason} ->
             {error, Reason}
@@ -138,10 +137,12 @@ register_capabilities() ->
                      false],
                     [{riak_core, net_ticktime},
                      [true, false],
-                     false]],
+                     false],
+                    [{riak_core, job_version},
+                     riak_core_job:versions() ++ [false],
+                     false]
+    ],
     lists:foreach(
-      fun(Capability) ->
-              apply(riak_core_capability, register, Capability)
-      end,
-      Capabilities),
-    ok.
+        fun(Capability) ->
+            ok = apply(riak_core_capability, register, Capability)
+        end, Capabilities).
