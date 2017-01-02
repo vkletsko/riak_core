@@ -1,14 +1,43 @@
-.eunit/*
-deps/*
-priv/*
-ebin/*
-*.o
-include/*_pb.hrl
+# rebar and tools
+*.crashdump
+/.cache/
+/.eqc*
+/.eunit/
+/.rebar/
+/.rebar3/
+/_build/
+/_checkouts
+/deps
+/doc/
+/rebar.lock
+log/
+
+# work environments
+*.bak
+*.dump
+*.iml
+*.plt
+*.sublime-project
+*.sublime-workspace
+*.tmp
+*.txt
+*_plt
 *~
-doc/*
-/.eqc-info
-/current_counterexample.eqc
-.local_dialyzer_plt
-dialyzer_warnings
-dialyzer_unhandled_warnings
-.rebar
+.DS_Store
+.idea/
+.project
+.settings/
+.tm_properties
+erln8.config
+tmp/
+
+# Erlang artifacts
+*.app
+*.beam
+/ebin/
+
+# test artifacts - shouldn't be up at this level
+/data/
+/nonode@nohost/
+/ring_manager_eunit/
+/sim.out
