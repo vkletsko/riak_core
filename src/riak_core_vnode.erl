@@ -1079,6 +1079,7 @@ current_state(Pid) ->
 pool_death_test() ->
     % app-level supervisor must be present for job management
     {ok, Sup} = riak_core_job_sup:start_link(),
+    meck:unload(),
     meck:new(test_vnode, [non_strict, no_link]),
     meck:expect(test_vnode, init, fun(_) -> {ok, [], [{pool, test_pool_mod, 1, []}]} end),
     meck:expect(test_vnode, terminate, fun(_, _) -> normal end),
@@ -1101,8 +1102,7 @@ pool_death_test() ->
 
     meck:validate(test_pool_mod),
     meck:validate(test_vnode),
-    meck:unload(test_pool_mod),
-    meck:unload(test_vnode),
+    meck:unload(),
     erlang:unlink(Sup),
     erlang:exit(Sup, shutdown).
 

@@ -203,14 +203,19 @@
 %%      is `scheds'.</dd>
 %%
 %%  <dt>`cores'</dt>
-%%  <dd>The value of `erlang:system_info(logical_processors)'. If the system
-%%      returns anything other than an integer greater than zero (as it may on
-%%      some platforms), the result is calculated as if the <i>Token</i>
-%%      is `scheds'.</dd>
+%%  <dd>The value of
+%%      <a href="http://erlang.org/doc/man/erlang.html#logical_processors">
+%%      <code>erlang:system_info(logical_processors)</code></a>.
+%%      If the system returns anything other than an integer greater than zero
+%%      (as it may on some platforms), the result is calculated as if the
+%%      <i>Token</i> is `scheds'.</dd>
 %%
 %%  <dt>`scheds'</dt>
-%%  <dd>The value of `erlang:system_info(schedulers)'. This value is always an
-%%      integer greater than zero, so there's no fallback.</dd>
+%%  <dd>The value of
+%%      <a href="http://erlang.org/doc/man/erlang.html#system_info_schedulers">
+%%      <code>erlang:system_info(schedulers)</code></a>.
+%%      This value is always an integer greater than zero, so there's no
+%%      fallback.</dd>
 %% </dl>
 %%
 %% Calculated values are determined at initialization, they ARE NOT dynamic!
