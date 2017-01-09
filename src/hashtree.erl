@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012-2015 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2012-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -438,7 +438,7 @@ clear_buckets(State=#state{id=Id, ref=Ref}) ->
     %% tree.
     State#state{next_rebuild = full,
                 tree = dict:new()}.
-            
+
 
 -spec update_tree([integer()], hashtree()) -> hashtree().
 update_tree([], State) ->
@@ -1490,11 +1490,13 @@ delta_test() ->
     ok.
 
 delete_without_update_test() ->
-    A1 = new({0,0},[{segment_path, "t1"}]),
+    TestDir1 = "/tmp/hashtree_test_1",
+    TestDir2 = "/tmp/hashtree_test_2",
+    A1 = new({0,0},[{segment_path, TestDir1}]),
     A2 = insert(<<"k">>, <<1234:32>>, A1),
     A3 = update_tree(A2),
 
-    B1 = new({0,0},[{segment_path, "t2"}]),
+    B1 = new({0,0},[{segment_path, TestDir2}]),
     B2 = insert(<<"k">>, <<1234:32>>, B1),
     B3 = update_tree(B2),
 
@@ -1505,7 +1507,7 @@ delete_without_update_test() ->
     C3 = flush_buffer(C2),
     close(C3),
 
-    AA1 = new({0,0},[{segment_path, "t1"}]),
+    AA1 = new({0,0},[{segment_path, TestDir1}]),
     AA2 = update_tree(AA1),
     Diff2 = local_compare(AA2, B3),
 
@@ -1514,19 +1516,23 @@ delete_without_update_test() ->
     destroy(C3),
     destroy(B3),
     destroy(AA2),
+    file:del_dir(TestDir1),
+    file:del_dir(TestDir2),
 
     ?assertEqual([], Diff),
     ?assertEqual([{missing, <<"k">>}], Diff2).
 
 opened_closed_test() ->
+    TestDir1 = "/tmp/hashtree_test_1000",
+    TestDir2 = "/tmp/hashtree_test_2000",
     TreeId0 = {0,0},
     TreeId1 = term_to_binary({0,0}),
-    A1 = new(TreeId0, [{segment_path, "t1000"}]),
+    A1 = new(TreeId0, [{segment_path, TestDir1}]),
     A2 = mark_open_and_check(TreeId0, A1),
     A3 = insert(<<"totes">>, <<1234:32>>, A2),
     A4 = update_tree(A3),
 
-    B1 = new(TreeId0, [{segment_path, "t2000"}]),
+    B1 = new(TreeId0, [{segment_path, TestDir2}]),
     B2 = mark_open_empty(TreeId0, B1),
     B3 = insert(<<"totes">>, <<1234:32>>, B2),
     B4 = update_tree(B3),
@@ -1544,7 +1550,7 @@ opened_closed_test() ->
     close(A6),
     close(B4),
 
-    AA1 = new(TreeId0, [{segment_path, "t1000"}]),
+    AA1 = new(TreeId0, [{segment_path, TestDir1}]),
     AA2 = mark_open_and_check(TreeId0, AA1),
     AA3 = update_tree(AA2),
     StatusAA3 = {proplists:get_value(opened, read_meta_term(TreeId1, [], AA3)),
@@ -1552,7 +1558,7 @@ opened_closed_test() ->
 
     fake_close(AA3),
 
-    AAA1 = new(TreeId0,[{segment_path, "t1000"}]),
+    AAA1 = new(TreeId0,[{segment_path, TestDir1}]),
     AAA2 = mark_open_and_check(TreeId0, AAA1),
     StatusAAA2 = {proplists:get_value(opened, read_meta_term(TreeId1, [], AAA2)),
                   proplists:get_value(closed, read_meta_term(TreeId1, [], AAA2))},
@@ -1560,7 +1566,7 @@ opened_closed_test() ->
     AAA3 = mark_clean_close(TreeId0, AAA2),
     close(AAA3),
 
-    AAAA1 = new({0,0},[{segment_path, "t1000"}]),
+    AAAA1 = new({0,0},[{segment_path, TestDir1}]),
     AAAA2 = mark_open_and_check(TreeId0, AAAA1),
     StatusAAAA2 = {proplists:get_value(opened, read_meta_term(TreeId1, [], AAAA2)),
                    proplists:get_value(closed, read_meta_term(TreeId1, [], AAAA2))},
@@ -1574,6 +1580,8 @@ opened_closed_test() ->
     destroy(AA3),
     destroy(AAA3),
     destroy(AAAA3),
+    file:del_dir(TestDir1),
+    file:del_dir(TestDir2),
 
     ?assertEqual({1,undefined}, StatusA4),
     ?assertEqual({1,0}, StatusB4),

@@ -1,8 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% riak_core: Core Active Preference Lists
-%%
-%% Copyright (c) 2007-2010 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,6 +15,10 @@
 %% KIND, either express or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
+%%
+%% -------------------------------------------------------------------
+
+%% Core Active Preference Lists
 %%
 %% -------------------------------------------------------------------
 %% Get active preference list - preference list with secondary nodes
@@ -282,7 +284,9 @@ last_in_ring() ->
 six_node_test() ->
     %% its non-trivial to create a real 6 node ring, so here's one we made
     %% earlier
-    {ok, [Ring0]} = file:consult("../test/my_ring"),
+    TestDir = cuttlefish_unit:lib_test_dir(?MODULE),
+    ?assertNotEqual(false, TestDir),
+    {ok, [Ring0]} = file:consult(filename:join(TestDir, "my_ring")),
     Ring = riak_core_ring:upgrade(Ring0),
     %DocIdx = riak_core_util:chash_key({<<"foo">>, <<"bar">>}),
     DocIdx = <<73,212,27,234,104,13,150,207,0,82,86,183,125,225,172,
@@ -360,7 +364,9 @@ six_node_test() ->
     ok.
 
 six_node_bucket_key_ann_test() ->
-    {ok, [Ring0]} = file:consult("../test/my_ring"),
+    TestDir = cuttlefish_unit:lib_test_dir(?MODULE),
+    ?assertNotEqual(false, TestDir),
+    {ok, [Ring0]} = file:consult(filename:join(TestDir, "my_ring")),
     Nodes = ['dev1@127.0.0.1', 'dev2@127.0.0.1', 'dev3@127.0.0.1',
         'dev4@127.0.0.1', 'dev5@127.0.0.1', 'dev6@127.0.0.1'],
     Ring = riak_core_ring:upgrade(Ring0),

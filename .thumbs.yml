@@ -1,11 +1,12 @@
 minimum_reviewers: 2
 merge: true
 build_steps:
-  - make clean
-  - make deps
-  - make compile
-  - make test
-  - make xref
-  - make dialyzer
+  - rebar3 clean --all
+  - rebar3 compile
+  - rebar3 as prod brt-deps --check
+  - rebar3 as check brt-deps --check
+  - rebar3 as check xref
+  - rebar3 as check dialyzer
+  - rebar3 eunit
 org_mode: true
 timeout: 1800

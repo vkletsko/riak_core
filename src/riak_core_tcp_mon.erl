@@ -1,8 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% TCP Connection Monitor
-%%
-%% Copyright (c) 2013-2016 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2013-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -20,7 +18,7 @@
 %%
 %% -------------------------------------------------------------------
 
-
+%% TCP Connection Monitor
 -module(riak_core_tcp_mon).
 
 -ifdef(TEST).
@@ -448,47 +446,58 @@ nodeupdown_test_() ->
     {spawn, {timeout, 60, fun updown/0}}.
 
 ssl_test_() ->
-    {timeout, 60, fun() ->
-        ssl:start(),
-        % Set the stat gathering interval to 100ms
-        {ok, TCPMonPid} = riak_core_tcp_mon:start_link([{interval, 100}]),
-        % set up a server to hear us out.
-        {ok, LS} = ssl:listen(0, [{active, true}, binary, {certfile, "../test/site1-cert.pem"}, {keyfile, "../test/site1-key.pem"}]),
-        {ok, {_, Port}} = ssl:sockname(LS),
-        spawn(fun () ->
-            %% server
-            {ok, S} = ssl:transport_accept(LS),
-            ok = ssl:ssl_accept(S),
-            ssl_recv_loop(S)
-        end),
+    {timeout, 60, fun ssl_test_fun/0}.
 
-        {ok, Socket} = ssl:connect("localhost", Port, [binary, {active, true}, {certfile, "../test/site2-cert.pem"}, {keyfile, "../test/site2-key.pem"}]),
-        riak_core_tcp_mon:monitor(Socket, "test", ssl),
-        % so we have stats to see
-        lists:foreach(fun(_) ->
-            ssl:send(Socket, <<"TEST">>)
-        end, lists:seq(1, 100)),
+ssl_test_fun() ->
+    TestDir = cuttlefish_unit:lib_test_dir(?MODULE),
+    ?assertNotEqual(false, TestDir),
 
-        % wait for stats to update
-        timer:sleep(1000),
+    ssl:start(),
+    % Set the stat gathering interval to 100ms
+    {ok, TCPMonPid} = riak_core_tcp_mon:start_link([{interval, 100}]),
 
-        Status1 = riak_core_tcp_mon:socket_status(Socket),
-        ?assertNotEqual([], Status1),
+    % set up a server to hear us out.
+    {ok, LS} = ssl:listen(0, [
+        {active, true}, binary,
+        {certfile, filename:join(TestDir, "site1-cert.pem")},
+        {keyfile, filename:join(TestDir, "site1-key.pem")} ]),
+    {ok, {_, Port}} = ssl:sockname(LS),
+    Server = fun() ->
+        {ok, S} = ssl:transport_accept(LS),
+        ok = ssl:ssl_accept(S),
+        ssl_recv_loop(S)
+    end,
+    spawn(Server),
 
-        Status2 = riak_core_tcp_mon:status(),
-        Filtered = lists:filter(fun(StatBlock) ->
-            proplists:get_value(socket, StatBlock) =:= Socket
-        end, Status2),
-        ?assertNotEqual([], Filtered),
-        ?assertNotEqual([[{socket, Socket}]], Filtered),
+    {ok, Socket} = ssl:connect("localhost", Port, [
+        binary, {active, true},
+        {certfile, filename:join(TestDir, "site2-cert.pem")},
+        {keyfile, filename:join(TestDir, "site2-key.pem")} ]),
+    riak_core_tcp_mon:monitor(Socket, "test", ssl),
+    % so we have stats to see
+    lists:foreach(fun(_) ->
+        ssl:send(Socket, <<"TEST">>)
+    end, lists:seq(1, 100)),
 
-        % clean up my mess
-        ssl:close(Socket),
-        TCPMonPid = whereis(riak_core_tcp_mon),
-        unlink(TCPMonPid),
-        exit(TCPMonPid, kill),
-        ok
-    end}.
+    % wait for stats to update
+    timer:sleep(1000),
+
+    Status1 = riak_core_tcp_mon:socket_status(Socket),
+    ?assertNotEqual([], Status1),
+
+    Status2 = riak_core_tcp_mon:status(),
+    Filtered = lists:filter(fun(StatBlock) ->
+        proplists:get_value(socket, StatBlock) =:= Socket
+    end, Status2),
+    ?assertNotEqual([], Filtered),
+    ?assertNotEqual([[{socket, Socket}]], Filtered),
+
+    % clean up my mess
+    ssl:close(Socket),
+    TCPMonPid = whereis(riak_core_tcp_mon),
+    unlink(TCPMonPid),
+    exit(TCPMonPid, kill),
+    ok.
 
 ssl_recv_loop(S) ->
     receive
