@@ -20,7 +20,6 @@ log/
 *.sublime-project
 *.sublime-workspace
 *.tmp
-*.txt
 *_plt
 *~
 .DS_Store
@@ -28,12 +27,14 @@ log/
 .project
 .settings/
 .tm_properties
+/*.txt
 erln8.config
 tmp/
 
 # Erlang artifacts
 *.app
 *.beam
+*.coverdata
 /ebin/
 
 # test artifacts - shouldn't be up at this level
