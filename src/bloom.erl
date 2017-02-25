@@ -1,41 +1,59 @@
-% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2010-2017 Basho Technologies, Inc.
+%% Copyright (c) 2009 Paulo Sérgio Almeida.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
 %% under the License.
-%% 
+%%
+%% -------------------------------------------------------------------
+
+%% @doc Provides scalable bloom filters that can grow indefinitely while
+%%      ensuring a desired maximum false positive probability.
+%% Also provides standard partitioned bloom filters with a maximum capacity.
+%% Bit arrays are dimensioned as a power of 2 to enable reusing hash values
+%% across filters through bit operations. Double hashing is used (no need for
+%% enhanced double hashing for partitioned bloom filters).
+%%
+%% @reference Based on "Scalable Bloom Filters"<br />
+%%  Paulo S&#233;rgio Almeida, Carlos Baquero, Nuno Pregui&#231;a, David Hutchison<br />
+%%  Information Processing Letters<br />
+%%  Volume 101, Issue 6, 31 March 2007, Pages 255-261<br />
+%%  [http://haslab.uminho.pt/cbm/files/dbloom.pdf]
+%%
+%% @end
 -module(bloom).
+
 -author("Paulo Sergio Almeida <psa@di.uminho.pt>").
+%% Original: https://sites.google.com/site/scalablebloomfilters/
+%% Modified slightly by Justin Sheehy to make it a single file
+%% (incorporated the array-based bitarray internally).
+
 -export([sbf/1, sbf/2, sbf/3, sbf/4,
          bloom/1, bloom/2,
          member/2, add/2,
          size/1, capacity/1]).
--export([is_element/2, add_element/2]). % alternative names
--import(math, [log/1, pow/2]).
 
+-export([is_element/2, add_element/2]). % alternative names
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
+%% alternative names
 is_element(E, B) -> member(E, B).
 add_element(E, B) -> add(E, B).
-
-%% Based on
-%% Scalable Bloom Filters
-%% Paulo Sérgio Almeida, Carlos Baquero, Nuno Preguiça, David Hutchison
-%% Information Processing Letters
-%% Volume 101, Issue 6, 31 March 2007, Pages 255-261 
-%%
-%% Provides scalable bloom filters that can grow indefinitely while
-%% ensuring a desired maximum false positive probability. Also provides
-%% standard partitioned bloom filters with a maximum capacity. Bit arrays
-%% are dimensioned as a power of 2 to enable reusing hash values across
-%% filters through bit operations. Double hashing is used (no need for
-%% enhanced double hashing for partitioned bloom filters).
-
-%% modified slightly by Justin Sheehy to make it a single file
-%% (incorporated the array-based bitarray internally)
 
 -define(W, 27).
 
@@ -68,17 +86,17 @@ bloom(N, E) when is_number(N), N > 0,
 
 bloom(Mode, Dim, E) ->
   K = 1 + trunc(log2(1/E)),
-  P = pow(E, 1 / K),
+  P = math:pow(E, 1 / K),
   case Mode of
-    size -> Mb = 1 + trunc(-log2(1 - pow(1 - P, 1 / Dim)));
+    size -> Mb = 1 + trunc(-log2(1 - math:pow(1 - P, 1 / Dim)));
     bits -> Mb = Dim
   end,
   M = 1 bsl Mb,
-  N = trunc(log(1-P) / log(1-1/M)),
+  N = trunc(math:log(1-P) / math:log(1-1/M)),
   #bloom{e=E, n=N, mb=Mb, size = 0,
          a = [bitarray_new(1 bsl Mb) || _ <- lists:seq(1, K)]}.
 
-log2(X) -> log(X) / log(2).
+log2(X) -> math:log(X) / math:log(2).
 
 %% Constructors for scalable bloom filters
 %%
@@ -188,13 +206,13 @@ bitarray_get(I, A) ->
   V band (1 bsl (I rem ?W)) =/= 0.
 
 -ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
 
 simple_shuffle(L, N) ->
     lists:sublist(simple_shuffle(L), 1, N).
 simple_shuffle(L) ->
+    RandMod = riak_core_util:rand_module(),
     N = 1000 * length(L),
-    L2 = [{random:uniform(N), E} || E <- L],
+    L2 = [{RandMod:uniform(N), E} || E <- L],
     {_, L3} = lists:unzip(lists:keysort(1, L2)),
     L3.
 
@@ -206,7 +224,7 @@ fixed_case(Bloom, Size, FalseRate) ->
     ?assertEqual(0, bloom:size(Bloom)),
     RandomList = simple_shuffle(lists:seq(1,100*Size), Size),
     [?assertEqual(false, bloom:is_element(E, Bloom)) || E <- RandomList],
-    Bloom2 = 
+    Bloom2 =
         lists:foldl(fun(E, Bloom0) ->
                             bloom:add_element(E, Bloom0)
                     end, Bloom, RandomList),
@@ -220,7 +238,7 @@ scalable_case(Bloom, Size, FalseRate) ->
     ?assertEqual(0, bloom:size(Bloom)),
     RandomList = simple_shuffle(lists:seq(1,100*Size), 10*Size),
     [?assertEqual(false, bloom:is_element(E, Bloom)) || E <- RandomList],
-    Bloom2 = 
+    Bloom2 =
         lists:foldl(fun(E, Bloom0) ->
                             bloom:add_element(E, Bloom0)
                     end, Bloom, RandomList),
@@ -231,5 +249,5 @@ scalable_case(Bloom, Size, FalseRate) ->
 bloom_test() ->
     scalable_case(sbf(1000, 0.2), 1000, 0.2),
     ok.
-    
+
 -endif.

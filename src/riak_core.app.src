@@ -62,18 +62,26 @@
     ]},
     {included_applications, [folsom, riak_ensemble]},
     {applications, [
+        % OTP
         kernel,
         stdlib,
-        lager,
         sasl,
+        compiler,
         crypto,
-        riak_sysmon,
-        os_mon,
+        runtime_tools,
+        ssl,
+        syntax_tools,
+        % Riak
         basho_stats,
+        clique,
+        cluster_info,
+        cuttlefish,
         eleveldb,
-        pbkdf2,
         exometer_core,
-        clique
+        lager,
+        os_mon,
+        pbkdf2,
+        riak_sysmon
     ]},
     {mod, {riak_core_app, []}},
     {env, [

@@ -1131,8 +1131,9 @@ update_job(#mgrkey{mgr = Mgr, key = Key}, Stat, Info) ->
 %% Erase Key/Rec from collection Coll.
 %% If you care whether it was there in the first place, use c_remove/2.
 %%
-c_erase({Key, Val}, #ld{d = D} = Coll) when ?is_job_loc(Val) ->
-    Coll#ld{d = dict:erase(Key, D)};
+%%%% not currently used, hide but maintain order for later use
+%%c_erase({Key, Val}, #ld{d = D} = Coll) when ?is_job_loc(Val) ->
+%%    Coll#ld{d = dict:erase(Key, D)};
 c_erase(Key, #ld{d = D} = Coll) when ?is_job_gid(Key) ->
     Coll#ld{d = dict:erase(Key, D)};
 c_erase(#rrec{}, #rd{c = 0} = Coll) ->

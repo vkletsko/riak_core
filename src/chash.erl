@@ -1,8 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% chash: basic consistent hashing
-%%
-%% Copyright (c) 2007-2011 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -51,7 +49,7 @@
          update/3]).
 
 -export_type([chash/0, index/0, index_as_int/0]).
-    
+
 -define(RINGTOP, trunc(math:pow(2,160)-1)).  % SHA-1 space
 
 -ifdef(TEST).
@@ -97,19 +95,15 @@ lookup(IndexAsInt, CHash) ->
     {IndexAsInt, X} = proplists:lookup(IndexAsInt, Nodes),
     X.
 
--ifndef(old_hash).
+-compile({inline, sha/1}).
 sha(Bin) ->
     crypto:hash(sha, Bin).
--else.
-sha(Bin) ->
-    crypto:sha(Bin).
--endif.
 
 %% @doc Given any term used to name an object, produce that object's key
 %%      into the ring.  Two names with the same SHA-1 hash value are
 %%      considered the same name.
 -spec key_of(ObjectName :: term()) -> index().
-key_of(ObjectName) ->    
+key_of(ObjectName) ->
     sha(term_to_binary(ObjectName)).
 
 %% @doc Return all Nodes that own any partitions in the ring.
@@ -125,7 +119,7 @@ members(CHash) ->
 merge_rings(CHashA,CHashB) ->
     {NumPartitions, NodesA} = CHashA,
     {NumPartitions, NodesB} = CHashB,
-    {NumPartitions, [{I,random_node(A,B)} || 
+    {NumPartitions, [{I,random_node(A,B)} ||
            {{I,A},{I,B}} <- lists:zip(NodesA,NodesB)]}.
 
 %% @doc Given the integer representation of a chash key,
@@ -193,10 +187,10 @@ successors(Index, CHash, N) ->
     Ordered = ordered_from(Index, CHash),
     {NumPartitions, _Nodes} = CHash,
     if Num =:= NumPartitions ->
-	    Ordered;
-       true ->
-	    {Res, _} = lists:split(Num, Ordered),
-	    Res
+            Ordered;
+        true ->
+            {Res, _} = lists:split(Num, Ordered),
+            Res
     end.
 
 %% @doc Make the partition beginning at IndexAsInt owned by Name'd node.
@@ -221,7 +215,7 @@ max_n(N, {NumPartitions, _Nodes}) ->
 %% @private
 -spec random_node(NodeA :: chash_node(), NodeB :: chash_node()) -> chash_node().
 random_node(NodeA,NodeA) -> NodeA;
-random_node(NodeA,NodeB) -> lists:nth(random:uniform(2),[NodeA,NodeB]).
+random_node(NodeA,NodeB) -> lists:nth(riak_core_util:rand_uniform(2),[NodeA,NodeB]).
 
 %% ===================================================================
 %% EUnit tests
@@ -230,11 +224,11 @@ random_node(NodeA,NodeB) -> lists:nth(random:uniform(2),[NodeA,NodeB]).
 
 update_test() ->
     Node = 'old@host', NewNode = 'new@host',
-    
+
     % Create a fresh ring...
     CHash = chash:fresh(5, Node),
     GetNthIndex = fun(N, {_, Nodes}) -> {Index, _} = lists:nth(N, Nodes), Index end,
-    
+
     % Test update...
     FirstIndex = GetNthIndex(1, CHash),
     ThirdIndex = GetNthIndex(3, CHash),
@@ -250,7 +244,7 @@ max_n_test() ->
     CHash = chash:fresh(8, the_node),
     ?assertEqual(1, max_n(1,CHash)),
     ?assertEqual(8, max_n(11,CHash)).
-    
+
 simple_size_test() ->
     ?assertEqual(8, length(chash:nodes(chash:fresh(8,the_node)))).
 

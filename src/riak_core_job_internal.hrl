@@ -42,14 +42,14 @@
 -include("riak_core_vnode.hrl").
 -include("riak_core_job.hrl").
 
--ifdef(namespaced_types).
--define(dict_t(K,V),    dict:dict(K, V)).
--define(orddict_t(K,V), orddict:orddict(K, V)).
--define(queue_t(T),     queue:queue(T)).
--else.
+-ifdef(NO_NAMESPACED_TYPES).
 -define(dict_t(K,V),    dict()).
 -define(orddict_t(K,V), orddict:orddict()).
 -define(queue_t(T),     queue()).
+-else.
+-define(dict_t(K,V),    dict:dict(K, V)).
+-define(orddict_t(K,V), orddict:orddict(K, V)).
+-define(queue_t(T),     queue:queue(T)).
 -endif.
 
 -ifdef(EDOC).

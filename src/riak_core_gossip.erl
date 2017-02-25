@@ -1,8 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% riak_core: Core Riak Application
-%%
-%% Copyright (c) 2007-2015 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -115,7 +113,7 @@ recursive_gossip(Ring) ->
 
 random_recursive_gossip(Ring) ->
     Active = riak_core_ring:active_members(Ring),
-    RNode = lists:nth(random:uniform(length(Active)), Active),
+    RNode = lists:nth(riak_core_util:rand_uniform(length(Active)), Active),
     recursive_gossip(Ring, RNode).
 
 %% ===================================================================
@@ -357,7 +355,7 @@ log_node_removed(Node, Old) ->
     lager:info("'~s' removed from cluster (previously: '~s')~n", [Node, Old]).
 
 remove_from_cluster(Ring, ExitingNode) ->
-    remove_from_cluster(Ring, ExitingNode, erlang:now()).
+    remove_from_cluster(Ring, ExitingNode, riak_core_util:rand_new_state()).
 
 remove_from_cluster(Ring, ExitingNode, Seed) ->
     % Get a list of indices owned by the ExitingNode...
@@ -414,7 +412,7 @@ attempt_simple_transfer(Seed, Ring, [{P, Exit}|Rest], TargetN, Exit, Idx, Last) 
                     target_n_fail;
                 Qualifiers ->
                     %% these nodes don't violate target_n forward
-                    {Rand, Seed2} = random:uniform_s(length(Qualifiers), Seed),
+                    {Rand, Seed2} = riak_core_util:rand_uniform_s(length(Qualifiers), Seed),
                     Chosen = lists:nth(Rand, Qualifiers),
                     %% choose one, and do the rest of the ring
                     attempt_simple_transfer(

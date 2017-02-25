@@ -38,6 +38,8 @@ tmp/
 /ebin/
 
 # test artifacts - shouldn't be up at this level
+*.eqc
+*.log
 /data/
 /nonode@nohost/
 /ring_manager_eunit/

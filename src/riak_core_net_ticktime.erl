@@ -1,8 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% riak_core: Core Riak Application
-%%
-%% Copyright (c) 2007-2013 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -21,8 +19,8 @@
 %% -------------------------------------------------------------------
 
 %% @doc Change net_kernel's ticktime on-the-fly.
-
 -module(riak_core_net_ticktime).
+
 -export([enable/0,
          start_set_net_ticktime_daemon/2,
          stop_set_net_ticktime_daemon/1]).
@@ -62,7 +60,7 @@ start_set_net_ticktime_daemon(Node, Time, true) ->
                             lager:info("start_set_net_ticktime_daemon: started "
                                        "changing net_ticktime on ~p to ~p\n",
                                  [Node, Time]),
-                            _ = random:seed(os:timestamp()),
+                            _ = riak_core_util:rand_seed(os:timestamp()),
                             set_net_ticktime_daemon_loop(Time, 1)
                         catch _:_ ->
                                 ok
@@ -116,7 +114,7 @@ set_net_ticktime_daemon_loop(Time, Count) ->
                        "changing net_ticktime on ~p to ~p\n", [node(), Time]),
             exit(normal);
         _ ->
-            timer:sleep(random:uniform(1*1000)),
+            timer:sleep(riak_core_util:rand_uniform(1*1000)),
             %% Here is an uncommon use the erlang:nodes/1 BIF.
             %% Hidden nodes (e.g. administrative escripts) may have
             %% connected to us.  Force them to change their tick time,

@@ -1,8 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% riak_core: Core Riak Application
-%%
-%% Copyright (c) 2007-2015 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -135,10 +133,14 @@
 
 -export_type([riak_core_ring/0, ring_size/0, partition_id/0]).
 
--include("riak_core.hrl").
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-endif.
+
+-ifdef(NO_NAMESPACED_TYPES).
+-define(dict_t(), dict()).
+-else.
+-define(dict_t(), dict:dict()).
 -endif.
 
 -define(CHSTATE, #chstate_v2).
@@ -147,7 +149,7 @@
     vclock   :: vclock:vclock() | undefined, % for this chstate object, entries are
                                  % {Node, Ctr}
     chring   :: chash:chash(),   % chash ring of {IndexAsInt, Node} mappings
-    meta     :: riak_core_dict() | undefined,
+    meta     :: ?dict_t() | undefined,
                                  % dict of cluster-wide other data (primarily
                                  % bucket N-value, etc)
 
@@ -346,7 +348,7 @@ fresh(RingSize, NodeName) ->
     VClock=vclock:increment(NodeName, vclock:fresh()),
     GossipVsn = riak_core_gossip:gossip_version(),
     ?CHSTATE{nodename=NodeName,
-             clustername={NodeName, erlang:now()},
+             clustername={NodeName, os:timestamp()},
              members=[{NodeName, {valid, VClock, [{gossip_vsn, GossipVsn}]}}],
              chring=chash:fresh(RingSize, NodeName),
              next=[],
@@ -442,7 +444,7 @@ preflist(Key, State) -> chash:successors(Key, State?CHSTATE.chring).
 -spec random_node(State :: chstate()) -> Node :: term().
 random_node(State) ->
     L = all_members(State),
-    lists:nth(random:uniform(length(L)), L).
+    lists:nth(riak_core_util:rand_uniform(length(L)), L).
 
 %% @doc Return a partition index not owned by the node executing this function.
 %%      If this node owns all partitions, return any index.
@@ -451,7 +453,7 @@ random_other_index(State) ->
     L = [I || {I,Owner} <- ?MODULE:all_owners(State), Owner =/= node()],
     case L of
         [] -> hd(my_indices(State));
-        _ -> lists:nth(random:uniform(length(L)), L)
+        _ -> lists:nth(riak_core_util:rand_uniform(length(L)), L)
     end.
 
 -spec random_other_index(State :: chstate(), Exclude :: [term()]) -> chash:index_as_int() | no_indices.
@@ -461,7 +463,7 @@ random_other_index(State, Exclude) when is_list(Exclude) ->
               not lists:member(I, Exclude)],
     case L of
         [] -> no_indices;
-        _ -> lists:nth(random:uniform(length(L)), L)
+        _ -> lists:nth(riak_core_util:rand_uniform(length(L)), L)
     end.
 
 %% @doc Return a randomly-chosen node from amongst the owners other than this one.
@@ -471,7 +473,7 @@ random_other_node(State) ->
         [] ->
             no_node;
         L ->
-            lists:nth(random:uniform(length(L)), L)
+            lists:nth(riak_core_util:rand_uniform(length(L)), L)
     end.
 
 %% @doc Return a randomly-chosen active node other than this one.
@@ -481,7 +483,7 @@ random_other_active_node(State) ->
         [] ->
             no_node;
         L ->
-            lists:nth(random:uniform(length(L)), L)
+            lists:nth(riak_core_util:rand_uniform(length(L)), L)
     end.
 
 %% @doc Incorporate another node's state into our view of the Riak world.

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012-2015 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2012-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,6 +17,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
+
 %%
 %% Hashtree EQC test.
 %%
@@ -39,12 +40,11 @@
 %% The command frequencies are deliberately manipulated to make it more
 %% likely that compares will take place once both trees are updated.
 %%
-
-
 -module(hashtree_eqc).
+
+%% Need to export everything, callbacks from EQC everywhere.
 -compile([export_all]).
 
--ifdef(TEST).
 -ifdef(EQC).
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eqc/include/eqc_statem.hrl").
@@ -78,8 +78,8 @@ hashtree_test_() ->
      [{timeout, 60,
        fun() ->
               lager:info("Any warnings should be investigated.  No lager output expected.\n"),
-              ?assert(eqc:quickcheck(?QC_OUT(eqc:testing_time(29,
-                                                              hashtree_eqc:prop_correct()))))
+              ?assert(eqc:quickcheck(?QC_OUT(
+                  eqc:testing_time(29, hashtree_eqc:prop_correct()))))
       end
       }]}.
 
@@ -96,13 +96,9 @@ hashtree_test_() ->
 integer_to_binary(Int) ->
     list_to_binary(integer_to_list(Int)).
 
--ifndef(old_hash).
+-compile({inline, sha/1}).
 sha(Bin) ->
     crypto:hash(sha, Bin).
--else.
-sha(Bin) ->
-    crypto:sha(Bin).
--endif.
 
 key() ->
     ?LET(Key, int(), ?MODULE:integer_to_binary(Key)).
@@ -220,7 +216,7 @@ command(_S = #state{started = true, tree_id = TreeId,
 %% to make sure the iterator code is fully exercised.
 %%
 %% Store the hashtree records in the process dictionary under keys 't1' and 't2'.
-%% 
+%%
 start(Params, [TreeId | ExtraIds], Tree1OpenOrEmpty, Tree2OpenOrEmpty) ->
     {Segments, Width, MemLevels} = Params,
     %% Return now so we can store symbolic value in procdict in next_state call
@@ -301,7 +297,7 @@ update_snapshot(T, S) ->
     ok.
 
 
-%% 
+%%
 %% Wrap the hashtree:update_perform call and erase the snapshot hashtree state.
 %% Should only happen if a snapshot state exists.
 %%
@@ -546,7 +542,7 @@ prop_correct() ->
                                   Res0
                           end,
                     %% Clean up after the test
-                    case Res of 
+                    case Res of
                         ok -> %  if all went well, remove leveldb files
                             catch cleanup_hashtree(get(t1)),
                             catch cleanup_hashtree(get(t2));
@@ -658,5 +654,4 @@ copy_tree(T, S) ->
     ets:insert(S, ets:tab2list(T)),
     ok.
 
--endif.
--endif.
+-endif. % EQC

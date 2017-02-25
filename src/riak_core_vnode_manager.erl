@@ -1,8 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% riak_core: Core Riak Application
-%%
-%% Copyright (c) 2007-2012 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -35,6 +33,15 @@
 %% Field debugging
 -export([get_tab/0]).
 
+-include("riak_core_handoff.hrl").
+-include("riak_core_vnode.hrl").
+
+-ifdef(NO_NAMESPACED_TYPES).
+-define(dict_t(), dict()).
+-else.
+-define(dict_t(), dict:dict()).
+-endif.
+
 -record(idxrec, {key, idx, mod, pid, monref}).
 -record(monrec, {monref, key}).
 
@@ -56,8 +63,8 @@
 -type repairs() :: [repair()].
 
 -record(state, {idxtab,
-                forwarding :: riak_core_dict(),
-                handoff :: riak_core_dict(),
+                forwarding :: ?dict_t(),
+                handoff :: ?dict_t(),
                 known_modules :: [term()],
                 never_started :: [{integer(), term()}],
                 vnode_start_tokens :: integer(),
@@ -65,9 +72,6 @@
                 repairs :: repairs()
                }).
 
--include("riak_core.hrl").
--include("riak_core_handoff.hrl").
--include("riak_core_vnode.hrl").
 -define(XFER_EQ(A, ModSrcTgt), A#xfer_status.mod_src_target == ModSrcTgt).
 -define(XFER_COMPLETE(X), X#xfer_status.status == complete).
 -define(DEFAULT_OWNERSHIP_TRIGGER, 8).

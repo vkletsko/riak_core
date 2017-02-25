@@ -21,61 +21,76 @@
 %% @doc Various functions that are useful throughout Riak.
 -module(riak_core_util).
 
--export([moment/0,
-         make_tmp_dir/0,
-         replace_file/2,
-         compare_dates/2,
-         reload_all/1,
-         integer_to_list/2,
-         unique_id_62/0,
-         str_to_node/1,
-         chash_key/1, chash_key/2,
-         chash_std_keyfun/1,
-         chash_bucketonly_keyfun/1,
-         mkclientid/1,
-         start_app_deps/1,
-         build_tree/3,
-         orddict_delta/2,
-         safe_rpc/4,
-         safe_rpc/5,
-         rpc_every_member/4,
-         rpc_every_member_ann/4,
-         count/2,
-         keydelete/2,
-         multi_keydelete/2,
-         multi_keydelete/3,
-         compose/1,
-         compose/2,
-         pmap/2,
-         pmap/3,
-         multi_rpc/4,
-         multi_rpc/5,
-         multi_rpc_ann/4,
-         multi_rpc_ann/5,
-         multicall_ann/4,
-         multicall_ann/5,
-         shuffle/1,
-         is_arch/1,
-         format_ip_and_port/2,
-         peername/2,
-         sockname/2,
-         sha/1,
-         md5/1,
-         make_fold_req/1,
-         make_fold_req/2,
-         make_fold_req/4,
-         make_newest_fold_req/1,
-         proxy_spawn/1,
-         proxy/2,
-         enable_job_class/1,
-         enable_job_class/2,
-         disable_job_class/1,
-         disable_job_class/2,
-         job_class_enabled/1,
-         job_class_enabled/2,
-         job_class_disabled_message/2,
-         report_job_request_disposition/6
-        ]).
+-export([
+    moment/0,
+    make_tmp_dir/0,
+    replace_file/2,
+    compare_dates/2,
+    reload_all/1,
+    integer_to_list/2,
+    unique_id_62/0,
+    str_to_node/1,
+    chash_key/1, chash_key/2,
+    chash_std_keyfun/1,
+    chash_bucketonly_keyfun/1,
+    mkclientid/1,
+    start_app_deps/1,
+    build_tree/3,
+    orddict_delta/2,
+    safe_rpc/4,
+    safe_rpc/5,
+    rpc_every_member/4,
+    rpc_every_member_ann/4,
+    count/2,
+    keydelete/2,
+    multi_keydelete/2,
+    multi_keydelete/3,
+    compose/1,
+    compose/2,
+    pmap/2,
+    pmap/3,
+    multi_rpc/4,
+    multi_rpc/5,
+    multi_rpc_ann/4,
+    multi_rpc_ann/5,
+    multicall_ann/4,
+    multicall_ann/5,
+    shuffle/1,
+    is_arch/1,
+    format_ip_and_port/2,
+    peername/2,
+    sockname/2,
+    sha/1,
+    md5/1,
+    make_fold_req/1,
+    make_fold_req/2,
+    make_fold_req/4,
+    make_newest_fold_req/1,
+    proxy_spawn/1,
+    proxy/2,
+    enable_job_class/1,
+    enable_job_class/2,
+    disable_job_class/1,
+    disable_job_class/2,
+    job_class_enabled/1,
+    job_class_enabled/2,
+    job_class_disabled_message/2,
+    report_job_request_disposition/6,
+    rand_module/0,
+    rand_get_state/0,
+    rand_new_state/0,
+    rand_seed/1,
+    rand_state/1,
+    rand_uniform/0,
+    rand_uniform/1,
+    rand_uniform_s/1,
+    rand_uniform_s/2
+]).
+
+-export_type([
+    rand_seed/0,
+    rand_state/0
+]).
 
 -include("riak_core_vnode.hrl").
 
@@ -89,6 +104,20 @@
 
 %% R14 Compatibility
 -compile({no_auto_import,[integer_to_list/2]}).
+
+-type rand_seed() :: {integer(), integer(), integer()}.
+-ifdef(NO_RAND_MODULE).
+-opaque rand_state() :: rand_seed().
+-define(RAND_MOD,           random).
+-define(env_rand_state(),   erlang:get(random_seed)).
+-define(env_rand_state(S),  erlang:put(random_seed, S)).
+-else.
+-opaque rand_state() :: rand:state().
+-define(RAND_MOD,           rand).
+-define(DEFAULT_RAND_ALG,   exsplus).
+-define(env_rand_state(),   erlang:get(rand_seed)).
+-define(env_rand_state(S),  erlang:put(rand_seed, S)).
+-endif.
 
 %% ===================================================================
 %% Public API
@@ -127,18 +156,17 @@ rfc1123_to_now(String) when is_list(String) ->
     MSec = ESec div 1000000,
     {MSec, Sec, 0}.
 
-%% @spec make_tmp_dir() -> string()
-%% @doc Create a unique directory in /tmp.  Returns the path
-%%      to the new directory.
+%% @doc Create a unique directory in /tmp.
+%% Returns the path to the new directory.
+-spec make_tmp_dir() -> string().
 make_tmp_dir() ->
-    TmpId = io_lib:format("riptemp.~p",
-                          [erlang:phash2({random:uniform(),self()})]),
-    TempDir = filename:join("/tmp", TmpId),
-    case filelib:is_dir(TempDir) of
-        true -> make_tmp_dir();
-        false ->
-            ok = file:make_dir(TempDir),
-            TempDir
+    TmpId = erlang:phash2({rand_uniform(), erlang:self()}),
+    TempDir = lists:flatten(io_lib:format("/tmp/riptemp.~b", [TmpId])),
+    case file:make_dir(TempDir) of
+        ok ->
+            TempDir;
+        {error, eexist} ->
+            make_tmp_dir()
     end.
 
 %% @doc Atomically/safely (to some reasonable level of durablity)
@@ -213,19 +241,11 @@ integer_to_list(I0, Base, R0) ->
 	    integer_to_list(I1, Base, R1)
     end.
 
--ifndef(old_hash).
 sha(Bin) ->
     crypto:hash(sha, Bin).
 
 md5(Bin) ->
     crypto:hash(md5, Bin).
--else.
-sha(Bin) ->
-    crypto:sha(Bin).
-
-md5(Bin) ->
-    crypto:md5(Bin).
--endif.
 
 %% @spec unique_id_62() -> string()
 %% @doc Create a random identifying integer, returning its string
@@ -624,8 +644,9 @@ orddict_delta(A, B) ->
     Diff.
 
 shuffle(L) ->
-    N = 134217727, %% Largest small integer on 32-bit Erlang
-    L2 = [{random:uniform(N), E} || E <- L],
+    rand_module(),          %% ensure's it's seeded
+    N = ((1 bsl 27) - 1),   %% Largest small integer
+    L2 = [{?RAND_MOD:uniform(N), E} || E <- L],
     L3 = [E || {_, E} <- lists:sort(L2)],
     L3.
 
@@ -862,6 +883,151 @@ report_job_request_disposition(false, Class, Mod, Func, Line, Client) ->
     lager:log(warning,
         [{pid, erlang:self()}, {module, Mod}, {function, Func}, {line, Line}],
         "Request '~p' disabled from ~p", [Class, Client]).
+
+%% @doc Get the rand/random module to use for calls to uniform/0-1.
+%% The PRNG is guaranteed to be seeded in the process in which this function
+%% is called, but it's not possible to tell if its current seed is derived
+%% from a constant ancestor.
+-spec rand_module() -> atom().
+-ifdef(NO_RAND_MODULE).
+rand_module() ->
+    case ?env_rand_state() of
+        undefined ->
+            _ = ?env_rand_state(os:timestamp()),
+            ?RAND_MOD;
+        _ ->
+            ?RAND_MOD
+    end.
+-else.
+-compile({inline, rand_module/0}).
+rand_module() ->
+    ?RAND_MOD.
+-endif.
+
+%% @doc Returns the (seeded) PRNG state.
+%% The PRNG state is unchanged *except* that if it has not yet been seeded
+%% at all, it's seeded with non-constant data.
+-spec rand_get_state() -> rand_state().
+-ifdef(NO_RAND_MODULE).
+rand_get_state() ->
+    case ?env_rand_state() of
+        undefined ->
+            Seed = os:timestamp(),
+            _ = ?env_rand_state(Seed),
+            Seed;
+        State ->
+            State
+    end.
+-else.
+rand_get_state() ->
+    case ?env_rand_state() of
+        undefined ->
+            ?RAND_MOD:seed(?DEFAULT_RAND_ALG);
+        State ->
+            State
+    end.
+-endif.
+
+%% @doc Returns a new unique rand/random state usable with uniform_s/1-2.
+-spec rand_new_state() -> rand_state().
+-compile({inline, rand_new_state/0}).
+-ifdef(NO_RAND_MODULE).
+rand_new_state() ->
+    erlang:now().
+-else.
+rand_new_state() ->
+    ?RAND_MOD:seed_s(?DEFAULT_RAND_ALG).
+-endif.
+
+%% @doc Seeds the PRNG with the specified values and return the prior state.
+-spec rand_seed(Seed :: rand_seed() | rand_state()) -> rand_state().
+-ifdef(NO_RAND_MODULE).
+rand_seed(Seed) ->
+    case ?RAND_MOD:seed(Seed) of
+        undefined ->
+            os:timestamp();
+        Prev ->
+            Prev
+    end.
+-else.
+rand_seed({_, _, _} = Seed) ->
+    Prev = rand_get_state(),
+    _ = ?RAND_MOD:seed(?DEFAULT_RAND_ALG, Seed),
+    Prev;
+rand_seed(State) ->
+    case ?env_rand_state() of
+        undefined ->
+            _ = ?env_rand_state(State),
+            ?RAND_MOD:seed_s(?DEFAULT_RAND_ALG);
+        Prev ->
+            _ = ?env_rand_state(State),
+            Prev
+    end.
+-endif.
+
+%% @doc Given a seed or state returns a state usable with uniform_s/1-2.
+-spec rand_state(Seed :: rand_seed() | rand_state()) -> rand_state().
+-ifdef(NO_RAND_MODULE).
+-compile({inline, rand_state/1}).
+rand_state(Seed) ->
+    Seed.
+-else.
+rand_state({_, _, _} = Seed) ->
+    ?RAND_MOD:seed_s(?DEFAULT_RAND_ALG, Seed);
+rand_state(State) ->
+    State.
+-endif.
+
+%% @doc Equivalent to rand/random uniform/0.
+%% The PRNG is guaranteed to be seeded, but it's not possible to tell if its
+%% current seed is derived from a constant ancestor.
+-spec rand_uniform() -> float().
+-ifdef(NO_RAND_MODULE).
+rand_uniform() ->
+    case ?env_rand_state() of
+        undefined ->
+            _ = ?env_rand_state(os:timestamp()),
+            ?RAND_MOD:uniform();
+        _ ->
+            ?RAND_MOD:uniform()
+    end.
+-else.
+-compile({inline, rand_uniform/0}).
+rand_uniform() ->
+    ?RAND_MOD:uniform().
+-endif.
+
+%% @doc Equivalent to rand/random uniform/1.
+%% The PRNG is guaranteed to be seeded, but it's not possible to tell if its
+%% current seed is derived from a constant ancestor.
+-spec rand_uniform(N :: pos_integer()) -> pos_integer().
+-ifdef(NO_RAND_MODULE).
+rand_uniform(N) ->
+    case ?env_rand_state() of
+        undefined ->
+            _ = ?env_rand_state(os:timestamp()),
+            ?RAND_MOD:uniform(N);
+        _ ->
+            ?RAND_MOD:uniform(N)
+    end.
+-else.
+-compile({inline, rand_uniform/1}).
+rand_uniform(N) ->
+    ?RAND_MOD:uniform(N).
+-endif.
+
+%% @doc Equivalent to rand/random uniform_s/1.
+-spec rand_uniform_s(State :: rand_state()) -> {float(), rand_state()}.
+-compile({inline, rand_uniform_s/1}).
+rand_uniform_s(State) ->
+    ?RAND_MOD:uniform_s(State).
+
+%% @doc Equivalent to rand/random uniform_s/2.
+-spec rand_uniform_s(N :: pos_integer(), State :: rand_state())
+            -> {pos_integer(), rand_state()}.
+-compile({inline, rand_uniform_s/2}).
+rand_uniform_s(N, State) ->
+    ?RAND_MOD:uniform_s(N, State).
 
 %% ===================================================================
 %% EUnit tests

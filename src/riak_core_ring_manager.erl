@@ -1,8 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% riak_core: Core Riak Application
-%%
-%% Copyright (c) 2007-2015 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -61,7 +59,6 @@
 %% retrieving the ring via `get_my_ring/0' or `get_raw_ring/0'.
 
 -module(riak_core_ring_manager).
--define(RING_KEY, riak_ring).
 -behaviour(gen_server).
 
 -export([start_link/0,
@@ -90,11 +87,14 @@
         terminate/2, code_change/3]).
 
 -ifdef(TEST).
-
--export([stop/0]).
-
+-export([
+    setup_ets/1,
+    cleanup_ets/1,
+    set_ring_global/1,
+    stop/0
+]).
+-include_lib("eunit/include/eunit.hrl").
 -endif.
-
 
 -record(state, {
         mode,
@@ -103,13 +103,8 @@
         inactivity_timer
     }).
 
--export([setup_ets/1, cleanup_ets/1, set_ring_global/1]). %% For EUnit testing
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
+-define(RING_KEY, riak_ring).
 -define(ETS, ets_riak_core_ring_manager).
-
 -define(PROMOTE_TIMEOUT, 90000).
 
 %% ===================================================================
@@ -226,11 +221,11 @@ is_stable_ring() ->
 %%      ring in a manner that will trigger reconciliation on gossip.
 force_update() ->
     ring_trans(
-      fun(Ring, _) ->
-              NewRing = riak_core_ring:update_member_meta(node(), Ring, node(),
-                                                          unused, now()),
-              {new_ring, NewRing}
-      end, []),
+        fun(Ring, _) ->
+            NewRing = riak_core_ring:update_member_meta(
+                node(), Ring, node(), unused, os:timestamp()),
+            {new_ring, NewRing}
+        end, []),
     ok.
 
 do_write_ringfile(Ring) ->
@@ -540,8 +535,10 @@ setup_ets(Mode) ->
     ets:insert(?ETS, [{changes, 0}, {promoted, 0}, {id, Id}]),
     ok.
 
+-ifdef(TEST).
 cleanup_ets(test) ->
     ets:delete(?ETS).
+-endif.
 
 reset_ring_id() ->
     %% Maintain ring id epoch using mochiglobal to ensure ring id remains

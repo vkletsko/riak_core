@@ -1,10 +1,48 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2011-2017 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
+
 -module(new_cluster_membership_model_eqc).
 
+%% This has never been active in a standard build, and takes around 15 minutes
+%% to run on a fast machine so it'll never be a standard build test.
+%%
+%% At present it passes with R16, but it still relies on two explicit calls
+%% to the `random' module in save_random/1. All other calls have been
+%% converted to use the random abstractions in riak_core_util, but switching
+%% to the commented code in that one remaining function causes the test to
+%% fail, apparently due to not following the random module's behavior exactly.
+%%
+%% Since that behavior can't be replicated in OTP-18+ without resorting to the
+%% deprecated random module, the test remains deactivated.
 -ifdef(MODEL).
+
 -ifdef(EQC).
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eqc/include/eqc_statem.hrl").
 -include_lib("eunit/include/eunit.hrl").
+
+-ifdef(NO_NAMESPACED_TYPES).
+-type dict_t() :: dict().
+-else.
+-type dict_t() :: dict:dict().
+-endif.
 
 -compile(export_all).
 -define(TEST_ITERATIONS, 3000).
@@ -21,22 +59,25 @@
 -define(RING, 8). %% Must be a power of two.
 -define(N, 3).
 
+%% random:seed0()
+-define(DEFAULT_SEED, {3172, 9814, 20125}).
+
 -define(CHSTATE, #chstate_v2).
 -record(chstate_v2, {
     nodename :: node(),          % the Node responsible for this chstate
     vclock   :: vclock:vclock(), % for this chstate object, entries are
                                  % {Node, Ctr}
     chring   :: chash:chash(),   % chash ring of {IndexAsInt, Node} mappings
-    meta     :: dict(),          % dict of cluster-wide other data (primarily
+    meta     :: dict_t(),        % dict of cluster-wide other data (primarily
                                  % bucket N-value, etc)
 
-    clustername :: {node(), term()}, 
+    clustername :: {node(), term()},
     next     :: [{integer(), node(), node(), [module()], awaiting | complete}],
     members  :: [{node(), {member_status(), vclock:vclock(), []}}],
     claimant :: node(),
     seen     :: [{node(), vclock:vclock()}],
     rvsn     :: vclock:vclock()
-}). 
+}).
 
 -type member_status() :: valid | invalid | leaving | exiting.
 
@@ -61,9 +102,9 @@
           allowed :: [integer()],
           random_ring :: [integer()],
           active_handoffs :: [{integer(), integer(), integer()}],
-          seed :: {integer(), integer(), integer()},
-          old_seed :: {integer(), integer(), integer()},
-          split :: dict()
+          seed :: riak_core_util:rand_state(),
+          old_seed :: riak_core_util:rand_state() | undefined,
+          split :: dict_t()
         }).
 
 eqc_test_() ->
@@ -74,7 +115,7 @@ eqc_test_() ->
        [{inorder,
          [manual_test_list(),
           %% Run the quickcheck tests
-          {timeout, 60000, % timeout is in msec
+          {timeout, 3600,
            ?_assertEqual(true, catch quickcheck(numtests(?TEST_ITERATIONS, ?QC_OUT(prop_join()))))}
          ]}
        ]
@@ -241,7 +282,7 @@ init_node_state(State, Node) ->
     RVsn=vclock:increment(Node, vclock:fresh()),
     VClock=vclock:increment(Node, vclock:fresh()),
     CState = ?CHSTATE{nodename=Node,
-                      clustername={Node, erlang:now()},
+                      clustername={Node, os:timestamp()},
                       members=[{Node, {valid, VClock, []}}],
                       chring=Ring,
                       next=[],
@@ -271,7 +312,7 @@ initial_state() ->
            members=[],
            allowed=[],
            active_handoffs=[],
-           seed={3172,9814,20125},
+           seed=riak_core_util:rand_state(?DEFAULT_SEED),
            split=dict:new()}.
 
 g_initial_nodes() ->
@@ -425,7 +466,7 @@ precondition2(State,_) ->
 is_joining(Node, State) ->
     CState = get_cstate(State, Node),
     member_status(CState, Node) =:= joining.
-            
+
 maybe_inconsistent(State, Node) ->
     NState = get_nstate(State, Node),
     CState = get_cstate(State, Node),
@@ -452,7 +493,7 @@ next_state(State, Result, Call) ->
         State2 ->
             State2
     catch
-        _:_ -> 
+        _:_ ->
             save_random(State#state{old_seed=OldSeed})
     end.
 
@@ -669,7 +710,7 @@ s_initial_cluster(State, Members, Others, RandomRing) ->
     RVsn=vclock:increment(Claimant, vclock:fresh()),
     VClock = vclock:increment(Claimant, vclock:fresh()),
     Seen = [{M, VClock} || M <- Members2],
-    CState = ?CHSTATE{clustername={Claimant, erlang:now()},
+    CState = ?CHSTATE{clustername={Claimant, os:timestamp()},
                       members=Members3,
                       chring=Ring,
                       next=[],
@@ -1068,7 +1109,7 @@ maybe_shutdown(State, Node) ->
         _ ->
             State
     end.
-            
+
 reconcile(State, CS01, CS02) ->
     VNode = owner_node(CS01),
     CS03 = update_seen(VNode, CS01),
@@ -1386,20 +1427,20 @@ ring_ready(CState0) ->
     end.
 
 seed_random(State) ->
-    OldSeed = random:seed(State#state.seed),
+    OldSeed = riak_core_util:rand_seed(State#state.seed),
     State#state{old_seed=OldSeed}.
 
 save_random(State=#state{old_seed=undefined}) ->
+    % Seed = riak_core_util:rand_seed(?DEFAULT_SEED),
     Seed = random:seed(),
     State#state{seed=Seed};
 save_random(State=#state{old_seed=OldSeed}) ->
+    % Seed = riak_core_util:rand_seed(OldSeed),
     Seed = random:seed(OldSeed),
     State#state{seed=Seed}.
 
 save_random() ->
-    Seed = random:seed(),
-    random:seed(Seed),
-    Seed.
+    riak_core_util:rand_get_state().
 
 ring_changed(State, _RRing, {Node, _NState}, CState0) ->
     CState = update_seen(Node, CState0),
@@ -1620,8 +1661,8 @@ handle_down_nodes(CState, Next) ->
                  case (OwnerLeaving and NextDown) of
                      true ->
                          Active = riak_core_ring:active_members(CState) -- [O],
-                         RNode = lists:nth(random:uniform(length(Active)),
-                                           Active),
+                         RNode = lists:nth(
+                             riak_core_util:rand_uniform(length(Active)), Active),
                          {Idx, O, RNode, Mods, Status};
                      _ ->
                          T
@@ -1653,7 +1694,7 @@ change_owners(CState, Reassign) ->
     lists:foldl(fun({Idx, NewOwner}, CState0) ->
                         riak_core_ring:transfer_node(Idx, NewOwner, CState0)
                 end, CState, Reassign).
-    
+
 remove_node(CState, Node, Status) ->
     Indices = indices(CState, Node),
     remove_node(CState, Node, Status, Indices).
@@ -1733,7 +1774,7 @@ attempt_simple_transfer(Ring, [{P, Exit}|Rest], TargetN, Exit, Idx, Last) ->
                                            fun({_, Owner}) -> Node /= Owner end,
                                            Rest))
                           end,
-            case lists:filter(fun(N) -> 
+            case lists:filter(fun(N) ->
                                  Next = StepsToNext(N),
                                  (Next+1 >= TargetN)
                                           orelse (Next == length(Rest))
@@ -1743,8 +1784,8 @@ attempt_simple_transfer(Ring, [{P, Exit}|Rest], TargetN, Exit, Idx, Last) ->
                     target_n_fail;
                 Qualifiers ->
                     %% these nodes don't violate target_n forward
-                    Chosen = lists:nth(random:uniform(length(Qualifiers)),
-                                       Qualifiers),
+                    Chosen = lists:nth(
+                        riak_core_util:rand_uniform(length(Qualifiers)), Qualifiers),
                     %% choose one, and do the rest of the ring
                     attempt_simple_transfer(
                       riak_core_ring:transfer_node(P, Chosen, Ring),
@@ -1820,7 +1861,7 @@ mark_transfer_complete(State, CState=?CHSTATE{next=Next, vclock=VClock}, Idx, Mo
                              {Idx, Owner, NextOwner, Transfers2, Status2}),
     VClock2 = vclock:increment(Owner, VClock),
     CState?CHSTATE{next=Next2, vclock=VClock2}.
-   
+
 %% VClock timestamps may be different for test generation versus
 %% shrinking/checking phases. Normalize to test for equality.
 equal_cstate(CS1, CS2) ->
@@ -1858,7 +1899,7 @@ filtered_seen(CS=?CHSTATE{seen=Seen}) ->
         Members ->
             orddict:filter(fun(N, _) -> lists:member(N, Members) end, Seen)
     end.
-  
+
 equal_vclock(VC1, VC2) ->
     VC3 = [{Node, {Count, 1}} || {Node, {Count, _TS}} <- VC1],
     VC4 = [{Node, {Count, 1}} || {Node, {Count, _TS}} <- VC2],
@@ -1874,7 +1915,7 @@ check_read(State, Owner, Idx) ->
             check_read2(State, Owner, Idx)
     end.
 
-check_read2(State, Owner, Idx) -> 
+check_read2(State, Owner, Idx) ->
     %%io:format("Checking if ~p has data for ~p~n", [Owner, Idx]),
     %% ?debugFmt("Checking if ~p has data for ~p~n", [Owner, Idx]),
     NState = get_nstate(State, Owner),
@@ -1955,7 +1996,7 @@ run_cmds(RingSize, Cmds) ->
 manual_test_list() ->
     [fun test_down_reassign/0].
 
-test_down_reassign() ->    
+test_down_reassign() ->
     run_cmds([{set,{var,1},
                {call,new_cluster_membership_model_eqc,initial_cluster,
                 [{[2,3,5],[0,1,4]},[0,1,2,3,4,5,6,7],{1,1,1}]}},
@@ -1970,5 +2011,5 @@ test_down_reassign() ->
               {set,{var,69},{call,new_cluster_membership_model_eqc,down,[0,3]}}]),
     ok.
 
--endif.
--endif.
+-endif. % EQC
+-endif. % MODEL

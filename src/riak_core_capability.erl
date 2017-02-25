@@ -165,7 +165,7 @@ get(Capability, Default) ->
     end.
 
 -ifdef(TEST).
-%% @doc Exported for testing - takes opaque state record and returns negotiated
+%% Exported for testing - takes opaque state record and returns negotiated
 get_negotiated(State) ->
     State#state.negotiated.
 -endif.

@@ -238,6 +238,9 @@ apl_with_partition_nums(Apl, Size) ->
     [{{riak_core_ring_util:hash_to_partition_id(Hash, Size), Node}, Ann} ||
         {{Hash, Node}, Ann} <- Apl].
 
+%% ===================================================================
+%% Unit tests
+%% ===================================================================
 -ifdef(TEST).
 
 smallest_test() ->
@@ -507,4 +510,4 @@ chbin_test_scenario(Size, NumNodes) ->
             Down <- [0, 1, 2, Size div 2, Size-1, Size]],
     ok.
 
--endif.
+-endif. % TEST

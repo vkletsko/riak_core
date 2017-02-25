@@ -133,12 +133,12 @@
 -export([compare2/4]).
 -export([multi_select_segment/3, safe_decode/1]).
 
--ifdef(namespaced_types).
--type hashtree_dict() :: dict:dict().
--type hashtree_array() :: array:array().
+-ifdef(NO_NAMESPACED_TYPES).
+-type dict_t() :: dict().
+-type array_t() :: array().
 -else.
--type hashtree_dict() :: dict().
--type hashtree_array() :: array().
+-type dict_t() :: dict:dict().
+-type array_t() :: array:array().
 -endif.
 
 -define(ALL_SEGMENTS, ['*', '*']).
@@ -201,7 +201,7 @@
                 segments           :: pos_integer(),
                 width              :: pos_integer(),
                 mem_levels         :: integer(),
-                tree               :: hashtree_dict(),
+                tree               :: dict_t(),
                 ref                :: term(),
                 path               :: string(),
                 itr                :: term(),
@@ -209,7 +209,7 @@
                 write_buffer       :: [{put, binary(), binary()} |
                                        {delete, binary()}],
                 write_buffer_count :: integer(),
-                dirty_segments     :: hashtree_array()
+                dirty_segments     :: array_t()
                }).
 
 -record(itr_state, {itr                :: term(),
@@ -639,42 +639,27 @@ get_bucket(Level, Bucket, State) ->
 %%% Internal functions
 %%%===================================================================
 
--ifndef(old_hash).
+-compile({inline, md5/1}).
 md5(Bin) ->
     crypto:hash(md5, Bin).
 
 -ifdef(TEST).
+-compile({inline, esha/1}).
 esha(Bin) ->
     crypto:hash(sha, Bin).
 -endif.
 
+-compile({inline, esha_init/0}).
 esha_init() ->
     crypto:hash_init(sha).
 
+-compile({inline, esha_update/2}).
 esha_update(Ctx, Bin) ->
     crypto:hash_update(Ctx, Bin).
 
+-compile({inline, esha_final/1}).
 esha_final(Ctx) ->
     crypto:hash_final(Ctx).
--else.
-md5(Bin) ->
-    crypto:md5(Bin).
-
--ifdef(TEST).
-esha(Bin) ->
-    crypto:sha(Bin).
--endif.
-
-esha_init() ->
-    crypto:sha_init().
-
-esha_update(Ctx, Bin) ->
-    crypto:sha_update(Ctx, Bin).
-
-esha_final(Ctx) ->
-    crypto:sha_final(Ctx).
-
--endif.
 
 -spec set_bucket(integer(), integer(), any(), hashtree()) -> hashtree().
 set_bucket(Level, Bucket, Val, State) ->
@@ -699,7 +684,8 @@ new_segment_store(Opts, State) ->
     DataDir = case proplists:get_value(segment_path, Opts) of
                   undefined ->
                       Root = "/tmp/anti/level",
-                      <<P:128/integer>> = md5(term_to_binary({erlang:now(), make_ref()})),
+                      <<P:128/integer>> = md5(
+                          erlang:term_to_binary({os:timestamp(), erlang:make_ref()})),
                       filename:join(Root, integer_to_list(P));
                   SegmentPath ->
                       SegmentPath
@@ -716,7 +702,9 @@ new_segment_store(Opts, State) ->
     %% flushed to disk at once when under a heavy uniform load.
     WriteBufferMin = proplists:get_value(write_buffer_size_min, Config, DefaultWriteBufferMin),
     WriteBufferMax = proplists:get_value(write_buffer_size_max, Config, DefaultWriteBufferMax),
-    {Offset, _} = random:uniform_s(1 + WriteBufferMax - WriteBufferMin, now()),
+    %% Extra effort here to always use a distinct unique PRNG state.
+    {Offset, _} = riak_core_util:rand_uniform_s(
+        (1 + WriteBufferMax - WriteBufferMin), riak_core_util:rand_new_state()),
     WriteBufferSize = WriteBufferMin + Offset,
     Config2 = orddict:store(write_buffer_size, WriteBufferSize, Config),
     Config3 = orddict:erase(write_buffer_size_min, Config2),
@@ -1213,17 +1201,17 @@ key_diff_type(_) ->
 %%%===================================================================
 -define(W, 27).
 
--spec bitarray_new(integer()) -> hashtree_array().
+-spec bitarray_new(integer()) -> array_t().
 bitarray_new(N) -> array:new((N-1) div ?W + 1, {default, 0}).
 
--spec bitarray_set(integer(), hashtree_array()) -> hashtree_array().
+-spec bitarray_set(integer(), array_t()) -> array_t().
 bitarray_set(I, A) ->
     AI = I div ?W,
     V = array:get(AI, A),
     V1 = V bor (1 bsl (I rem ?W)),
     array:set(AI, V1, A).
 
--spec bitarray_to_list(hashtree_array()) -> [integer()].
+-spec bitarray_to_list(array_t()) -> [integer()].
 bitarray_to_list(A) ->
     lists:reverse(
       array:sparse_foldl(fun(I, V, Acc) ->
