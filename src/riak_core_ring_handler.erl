@@ -1,3 +1,6 @@
+%%
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
+%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -11,8 +14,8 @@
 %% KIND, either express or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
-
-%% Copyright (c) 2007-2015 Basho Technologies, Inc.  All Rights Reserved.
+%%
+%% -------------------------------------------------------------------
 
 -module(riak_core_ring_handler).
 -behaviour(gen_event).
@@ -100,7 +103,7 @@ maybe_shutdown(Ring) ->
 
 exit_ring_trans() ->
     riak_core_ring_manager:ring_trans(
-        fun(Ring2, _) -> 
+        fun(Ring2, _) ->
                 Ring3 = riak_core_ring:exit_member(node(), Ring2, node()),
                 {new_ring, Ring3}
         end, []).
@@ -109,7 +112,7 @@ ready_to_exit([]) ->
     true;
 ready_to_exit([{_App, Mod} | AppMods]) ->
     case erlang:function_exported(Mod, ready_to_exit, 0) andalso
-             (not Mod:ready_to_exit()) of 
+             (not Mod:ready_to_exit()) of
         true ->
             false;
         false ->
@@ -129,42 +132,41 @@ ensure_vnodes_started({App,Mod}, Ring) ->
     %%       (needed to support those vnodes).  The hack does not fix
     %%       that dependency: internal techdebt todo list #A7 does.
     spawn_link(fun() ->
-    %%                 Use a registered name as a lock to prevent the same
-    %%                 vnode module from being started twice.
-                       RegName = list_to_atom(
-                                   "riak_core_ring_handler_ensure_"
-                                   ++ atom_to_list(Mod)),
-                       try erlang:register(RegName, self())
-                       catch error:badarg ->
-                               exit(normal)
-                       end,
+        %% Use a registered name as a lock to prevent the same
+        %% vnode module from being started twice.
+        RegName = list_to_atom(
+            "riak_core_ring_handler_ensure_" ++ atom_to_list(Mod)),
+        try
+            erlang:register(RegName, self())
+        catch
+            error:badarg ->
+            exit(normal)
+        end,
 
-                       %% Let the app finish starting...
-                       ok = riak_core:wait_for_application(App),
+        %% Let the app finish starting...
+        ok = riak_core:wait_for_application(App),
 
-                       %% Start the vnodes.
-                       HasStartVnodes = lists:member({start_vnodes, 1},
-                                                     Mod:module_info(exports)),
-                       case HasStartVnodes of
-                           true ->
-                               Mod:start_vnodes(Startable);
-                           false ->
-                               [Mod:start_vnode(I) || I <- Startable]
-                       end,
+        %% Start the vnodes.
+        HasStartVnodes = lists:member({start_vnodes, 1},
+            Mod:module_info(exports)),
+        case HasStartVnodes of
+            true ->
+                Mod:start_vnodes(Startable);
+            false ->
+                [Mod:start_vnode(I) || I <- Startable]
+        end,
 
-                       %% Mark the service as up.
-                       SupName = list_to_atom(atom_to_list(App) ++ "_sup"),
-                       SupPid = erlang:whereis(SupName),
-                       case riak_core:health_check(App) of
-                           undefined ->
-                               riak_core_node_watcher:service_up(App, SupPid);
-                           HealthMFA ->
-                               riak_core_node_watcher:service_up(App,
-                                                                 SupPid,
-                                                                 HealthMFA)
-                       end,
-                       exit(normal)
-               end),
+        %% Mark the service as up.
+        SupName = list_to_atom(atom_to_list(App) ++ "_sup"),
+        SupPid = erlang:whereis(SupName),
+        case riak_core:health_check(App) of
+            undefined ->
+                riak_core_node_watcher:service_up(App, SupPid);
+            HealthMFA ->
+                riak_core_node_watcher:service_up(App, SupPid, HealthMFA)
+        end,
+        ok
+    end),
     Startable.
 
 

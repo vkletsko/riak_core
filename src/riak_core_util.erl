@@ -107,12 +107,12 @@
 
 -type rand_seed() :: {integer(), integer(), integer()}.
 -ifdef(NO_RAND_MODULE).
--opaque rand_state() :: rand_seed().
+-type rand_state() :: rand_seed().
 -define(RAND_MOD,           random).
 -define(env_rand_state(),   erlang:get(random_seed)).
 -define(env_rand_state(S),  erlang:put(random_seed, S)).
 -else.
--opaque rand_state() :: rand:state().
+-type rand_state() :: rand:state().
 -define(RAND_MOD,           rand).
 -define(DEFAULT_RAND_ALG,   exsplus).
 -define(env_rand_state(),   erlang:get(rand_seed)).

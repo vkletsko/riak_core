@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2007-2012 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,10 +19,9 @@
 %% -------------------------------------------------------------------
 
 %% @doc incoming data handler for TCP-based handoff
-
 -module(riak_core_handoff_receiver).
--include("riak_core_handoff.hrl").
 -behaviour(riak_core_gen_server).
+
 -export([start_link/0,                          % Don't use SSL
          start_link/1,                          % SSL options list, empty=no SSL
          set_socket/2,
@@ -30,16 +29,20 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {sock :: port(),
-                peer :: term(),
-                ssl_opts :: [] | list(),
-                tcp_mod :: atom(),
-                recv_timeout_len :: non_neg_integer(),
-                vnode_timeout_len :: non_neg_integer(),
-                partition :: non_neg_integer(),
-                vnode_mod = riak_kv_vnode:: module(),
-                vnode :: pid(),
-                count = 0 :: non_neg_integer()}).
+-include("riak_core_handoff.hrl").
+
+-record(state, {
+    sock                        :: port() | undefined,
+    peer                        :: term(),
+    ssl_opts                    :: list(),
+    tcp_mod                     :: atom(),
+    recv_timeout_len            :: non_neg_integer(),
+    vnode_timeout_len           :: non_neg_integer(),
+    partition                   :: non_neg_integer() | undefined,
+    vnode_mod = riak_kv_vnode   :: module(),
+    vnode                       :: pid() | undefined,
+    count = 0                   :: non_neg_integer()
+}).
 
 %% set the TCP receive timeout to five minutes to be conservative.
 -define(RECV_TIMEOUT, 300000).

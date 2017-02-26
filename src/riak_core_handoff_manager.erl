@@ -1,3 +1,7 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
+%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -11,8 +15,9 @@
 %% KIND, either express or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
+%%
+%% -------------------------------------------------------------------
 
-%% Copyright (c) 2007-2012 Basho Technologies, Inc.  All Rights Reserved.
 -module(riak_core_handoff_manager).
 -behaviour(gen_server).
 
@@ -57,10 +62,16 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(state,
-        { excl,
-          handoffs=[] :: [handoff_status()]
-        }).
+-ifdef(NO_NAMESPACED_TYPES).
+-define(set_t(),    set()).
+-else.
+-define(set_t(),    sets:set()).
+-endif.
+
+-record(state, {
+    excl = sets:new()   :: ?set_t(),
+    handoffs = []       :: [handoff_status()]
+}).
 
 %% this can be overridden with riak_core handoff_concurrency
 -define(HANDOFF_CONCURRENCY,2).
@@ -76,7 +87,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    {ok, #state{excl=sets:new(), handoffs=[]}}.
+    {ok, #state{}}.
 
 add_outbound(HOType,Module,Idx,Node,VnodePid,Opts) ->
     add_outbound(HOType,Module,Idx,Idx,Node,VnodePid,Opts).

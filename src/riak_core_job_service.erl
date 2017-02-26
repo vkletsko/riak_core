@@ -679,8 +679,12 @@ cull_idle(#state{idle = IdleIn, icnt = ICnt} = State) ->
     _ = riak_core_job_sup:stop_runner(Runner),
     inc_stat(culled, State#state{idle = Idle, icnt = (ICnt - 1)}).
 
+-ifdef(NO_CONTRACT_OVERLOAD).
+-spec inc_stat(stat_key() | [stat_key()], state() | stats()) -> state() | stats().
+-else.
 -spec inc_stat(stat_key() | [stat_key()], state()) -> state()
         ;     (stat_key() | [stat_key()], stats()) -> stats().
+-endif.
 %%
 %% Increment one or more statistics counters.
 %%

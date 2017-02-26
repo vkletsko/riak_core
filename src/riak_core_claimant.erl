@@ -60,20 +60,22 @@
 -type ring_transition() :: {riak_core_ring(), riak_core_ring()}.
 
 -record(state, {
-          last_ring_id,
-          %% The set of staged cluster changes
-          changes :: [{node(), action()}],
+    last_ring_id :: undefined,
 
-          %% Ring computed during the last planning stage based on
-          %% applying a set of staged cluster changes. When commiting
-          %% changes, the computed ring must match the previous planned
-          %% ring to be allowed.
-          next_ring :: riak_core_ring(),
+    %% The set of staged cluster changes
+    changes :: [{node(), action()}],
 
-          %% Random number seed passed to remove_node to ensure the
-          %% current randomized remove algorithm is deterministic
-          %% between plan and commit phases
-          seed}).
+    %% Ring computed during the last planning stage based on
+    %% applying a set of staged cluster changes. When commiting
+    %% changes, the computed ring must match the previous planned
+    %% ring to be allowed.
+    next_ring :: riak_core_ring() | undefined,
+
+    %% Random number seed passed to remove_node to ensure the
+    %% current randomized remove algorithm is deterministic
+    %% between plan and commit phases
+    seed :: riak_core_util:rand_state()
+}).
 
 -define(ROUT(S,A),ok).
 %%-define(ROUT(S,A),?debugFmt(S,A)).

@@ -195,39 +195,42 @@
 
 -type next_rebuild() :: full | incremental.
 
--record(state, {id                 :: tree_id_bin(),
-                index              :: index(),
-                levels             :: pos_integer(),
-                segments           :: pos_integer(),
-                width              :: pos_integer(),
-                mem_levels         :: integer(),
-                tree               :: dict_t(),
-                ref                :: term(),
-                path               :: string(),
-                itr                :: term(),
-                next_rebuild       :: next_rebuild(),
-                write_buffer       :: [{put, binary(), binary()} |
-                                       {delete, binary()}],
-                write_buffer_count :: integer(),
-                dirty_segments     :: array_t()
-               }).
+-record(state, {
+    id                  :: tree_id_bin() | undefined,
+    index               :: index() | undefined,
+    levels              :: pos_integer() | undefined,
+    segments            :: pos_integer() | undefined,
+    width               :: pos_integer() | undefined,
+    mem_levels          :: integer() | undefined,
+    tree                :: dict_t() | undefined,
+    ref                 :: term(),
+    path                :: string() | undefined,
+    itr                 :: term(),
+    next_rebuild        :: next_rebuild() | undefined,
+    write_buffer        :: [{put, binary(), binary()} | {delete, binary()}] | undefined,
+    write_buffer_count  :: integer() | undefined,
+    dirty_segments      :: array_t() | undefined
+}).
 
--record(itr_state, {itr                :: term(),
-                    id                 :: tree_id_bin(),
-                    current_segment    :: '*' | integer(),
-                    remaining_segments :: ['*' | integer()],
-                    acc_fun            :: fun(([{binary(),binary()}]) -> any()),
-                    segment_acc        :: [{binary(), binary()}],
-                    final_acc          :: [{integer(), any()}],
-                    prefetch=false     :: boolean()
-                   }).
+-record(itr_state, {
+    itr                 :: term(),
+    id                  :: tree_id_bin(),
+    current_segment     :: '*' | integer(),
+    remaining_segments  :: ['*' | integer()],
+    acc_fun             :: fun(([{binary(),binary()}]) -> any()),
+    segment_acc         :: [{binary(), binary()}],
+    final_acc           :: [{integer(), any()}],
+    prefetch=false      :: boolean()
+}).
 
 -opaque hashtree() :: #state{}.
--export_type([hashtree/0,
-              tree_id_bin/0,
-              keydiff/0,
-              remote_fun/0,
-              acc_fun/1]).
+-export_type([
+    hashtree/0,
+    tree_id_bin/0,
+    keydiff/0,
+    remote_fun/0,
+    acc_fun/1
+]).
 
 %%%===================================================================
 %%% API
@@ -424,8 +427,6 @@ clear_buckets(State=#state{id=Id, ref=Ref}) ->
           end,
     Opts = [{first_key, encode_bucket(Id, 0, 0)}],
     Removed = try
-%hashtree.erl:415: The call eleveldb:fold(Ref::any(),Fun::fun((_,_) -> number()),0,Opts::[{'first_key',<<_:320>>},...]) breaks the contract (db_ref(),fold_fun(),any(),read_options()) -> any()
-
                   eleveldb:fold(Ref, Fun, 0, Opts)
               catch
                   {break, AccFinal} ->

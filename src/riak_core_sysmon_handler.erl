@@ -1,4 +1,6 @@
-%% Copyright (c) 2011 Basho Technologies, Inc.  All Rights Reserved.
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2011-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -13,13 +15,14 @@
 %% KIND, either express or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
+%%
+%% -------------------------------------------------------------------
 
 %% @doc A custom event handler to the `riak_sysmon' application's
 %% `system_monitor' event manager.
 %%
 %% This module attempts to discover more information about a process
 %% that generates a system_monitor event.
-
 -module(riak_core_sysmon_handler).
 
 -behaviour(gen_event).
@@ -31,7 +34,9 @@
 -export([init/1, handle_event/2, handle_call/2,
          handle_info/2, terminate/2, code_change/3]).
 
--record(state, {timer_ref :: reference()}).
+-record(state, {
+    timer_ref = undefined :: reference() | undefined
+}).
 
 -define(INACTIVITY_TIMEOUT, 5000).
 

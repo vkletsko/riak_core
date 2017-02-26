@@ -454,8 +454,12 @@ terminate(_Why, State) ->
 %% Internal
 %% ===================================================================
 
+-ifdef(NO_CONTRACT_OVERLOAD).
+-spec inc_stat(stat_key() | [stat_key()], state() | stats()) -> state() | stats().
+-else.
 -spec inc_stat(stat_key() | [stat_key()], state()) -> state()
         ;     (stat_key() | [stat_key()], stats()) -> stats().
+-endif.
 %%
 %% Increment one or more statistics counters.
 %%

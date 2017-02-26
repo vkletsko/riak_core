@@ -152,18 +152,18 @@
 -define(DEFAULT_TIMEOUT, 60000).
 -define(LOCK_RETRY_TIMEOUT, 10000).
 -record(state, {
-          index :: partition(),
-          mod :: module(),
-          modstate :: term(),
-          forward :: node() | [{integer(), node()}],
-          handoff_target=none :: none | {integer(), node()},
-          handoff_pid :: pid(),
-          handoff_type :: riak_core_handoff_manager:ho_type(),
-          pool_pid :: pid() | undefined,
-          pool_config :: tuple() | undefined,
-          manager_event_timer :: reference(),
-          inactivity_timeout :: non_neg_integer()
-         }).
+    index                   :: partition(),
+    mod                     :: module(),
+    modstate                :: term(),
+    forward                 :: node() | [{integer(), node()}],
+    handoff_target = none   :: none | {integer(), node()},
+    handoff_pid             :: pid() | undefined,
+    handoff_type            :: riak_core_handoff_manager:ho_type() | undefined,
+    pool_pid                :: pid() | undefined,
+    pool_config             :: tuple() | undefined,
+    manager_event_timer     :: reference() | undefined,
+    inactivity_timeout      :: non_neg_integer()
+}).
 
 start_link(Mod, Index, Forward) ->
     start_link(Mod, Index, 0, Forward).

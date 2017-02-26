@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2007-2012 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,9 +19,10 @@
 %% -------------------------------------------------------------------
 
 %% @doc send a partition's data via TCP-based handoff
-
 -module(riak_core_handoff_sender).
+
 -export([start_link/4, get_handoff_ssl_options/0]).
+
 -include("riak_core_vnode.hrl").
 -include("riak_core_handoff.hrl").
 -define(ACK_COUNT, 1000).
@@ -41,35 +42,34 @@
                      TargetPartition] ++ Args)).
 
 %% Accumulator for the visit item HOF
--record(ho_acc,
-        {
-          ack                  :: non_neg_integer(),
-          error                :: ok | {error, any()},
-          filter               :: function(),
-          module               :: module(),
-          parent               :: pid(),
-          socket               :: any(),
-          src_target           :: {non_neg_integer(), non_neg_integer()},
-          stats                :: #ho_stats{},
-          tcp_mod              :: module(),
+-record(ho_acc, {
+    ack                     :: non_neg_integer(),
+    error                   :: ok | {error, any()},
+    filter                  :: function(),
+    module                  :: module(),
+    parent                  :: pid(),
+    socket                  :: any(),
+    src_target              :: {non_neg_integer(), non_neg_integer()},
+    stats                   :: #ho_stats{},
+    tcp_mod                 :: module(),
 
-          total_objects        :: non_neg_integer(),
-          total_bytes          :: non_neg_integer(),
+    total_objects           :: non_neg_integer(),
+    total_bytes             :: non_neg_integer(),
 
-          use_batching         :: boolean(),
+    use_batching            :: boolean(),
 
-          item_queue           :: [binary()],
-          item_queue_length    :: non_neg_integer(),
-          item_queue_byte_size :: non_neg_integer(),
+    item_queue              :: [binary()],
+    item_queue_length       :: non_neg_integer(),
+    item_queue_byte_size    :: non_neg_integer(),
 
-          acksync_threshold    :: non_neg_integer(),
-          acksync_timer        :: timer:tref(),
+    acksync_threshold       :: non_neg_integer(),
+    acksync_timer           :: timer:tref() | undefined,
 
-          type                 :: ho_type(),
+    type                    :: ho_type(),
 
-          notsent_acc          :: term(),
-          notsent_fun          :: function()
-        }).
+    notsent_acc             :: term(),
+    notsent_fun             :: function() | undefined
+}).
 
 %%%===================================================================
 %%% API

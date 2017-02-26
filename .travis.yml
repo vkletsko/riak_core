@@ -2,10 +2,17 @@ language: erlang
 notifications:
   webhooks: http://basho-engbot.herokuapp.com/travis?key=72ce513a4a26166521f60f72511bfb905329db87
   email: eng@basho.com
+install:
+  - wget https://s3.amazonaws.com/rebar3/rebar3 && chmod +x rebar3
+script:
+  - ./rebar3 as prod compile
+  - ./rebar3 as check xref
+  - ./rebar3 as check dialyzer
+  - ./rebar3 eunit
+  - ./rebar3 edoc
 otp_release:
-  - R16B
-  - R15B03
-  - R15B02
-  - R15B01
-  - R15B
+  - 19.2
+  - 18.3
+  - 17.5
+  - R16B03
 

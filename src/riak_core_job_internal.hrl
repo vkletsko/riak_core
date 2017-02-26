@@ -44,12 +44,15 @@
 
 -ifdef(NO_NAMESPACED_TYPES).
 -define(dict_t(K,V),    dict()).
--define(orddict_t(K,V), orddict:orddict()).
 -define(queue_t(T),     queue()).
 -else.
 -define(dict_t(K,V),    dict:dict(K, V)).
--define(orddict_t(K,V), orddict:orddict(K, V)).
 -define(queue_t(T),     queue:queue(T)).
+-endif.
+-ifdef(NO_ORDDICT_2).
+-define(orddict_t(K,V), orddict:orddict()).
+-else.
+-define(orddict_t(K,V), orddict:orddict(K, V)).
 -endif.
 
 -ifdef(EDOC).

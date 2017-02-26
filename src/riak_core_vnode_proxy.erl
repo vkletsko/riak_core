@@ -1,5 +1,6 @@
 %% -------------------------------------------------------------------
-%% Copyright (c) 2007-2011 Basho Technologies, Inc.  All Rights Reserved.
+%%
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -16,6 +17,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
+
 -module(riak_core_vnode_proxy).
 -export([start_link/2, init/1, reg_name/2, reg_name/3, call/2, call/3, cast/2,
          unregister_vnode/3, command_return_vnode/2, overloaded/1]).
@@ -27,17 +29,18 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(state, {mod                    :: atom(),
-                index                  :: partition(),
-                vnode_pid              :: pid(),
-                vnode_mref             :: reference(),
-                check_mailbox          :: non_neg_integer(),
-                check_threshold        :: pos_integer() | undefined,
-                check_counter          :: non_neg_integer(),
-                check_interval         :: pos_integer(),
-                check_request_interval :: non_neg_integer(),
-                check_request          :: undefined | sent | ignore
-               }).
+-record(state, {
+    mod                     :: atom(),
+    index                   :: partition(),
+    vnode_pid               :: pid() | undefined,
+    vnode_mref              :: reference() | undefined,
+    check_mailbox           :: non_neg_integer(),
+    check_threshold         :: pos_integer() | undefined,
+    check_counter           :: non_neg_integer(),
+    check_interval          :: pos_integer(),
+    check_request_interval  :: non_neg_integer(),
+    check_request           :: undefined | sent | ignore
+}).
 
 -define(DEFAULT_CHECK_INTERVAL, 5000).
 -define(DEFAULT_OVERLOAD_THRESHOLD, 10000).
@@ -130,6 +133,7 @@ cast(Name, Msg) ->
 system_continue(Parent, _, State) ->
     loop(Parent, State).
 
+-spec system_terminate(_, _, _, _) -> no_return().
 system_terminate(Reason, _Parent, _, _State) ->
     exit(Reason).
 

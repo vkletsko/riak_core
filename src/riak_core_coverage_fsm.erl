@@ -1,9 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% riak_core_coverage_fsm: Distribute work to a covering set of VNodes.
-%%
-%%
-%% Copyright (c) 2007-2011 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -102,22 +99,23 @@
 -type vnode_selector() :: all | allup.
 -type primary_vnode_coverage() :: all | pos_integer().
 
--record(state, {coverage_vnodes :: [{non_neg_integer(), node()}],
-                mod :: atom(),
-                mod_state :: mod_state(),
-                n_val :: pos_integer(),
-                node_check_service :: module(),
-                vnode_selector :: vnode_selector(),
-                pvc :: primary_vnode_coverage(),
-                request :: tuple(),
-                req_id :: req_id(),
-                required_responses :: pos_integer(),
-                response_count=0 :: non_neg_integer(),
-                timeout :: timeout(),
-                vnode_master :: atom(),
-                plan_fun :: function(),
-                process_fun :: function()
-               }).
+-record(state, {
+    coverage_vnodes     :: [{non_neg_integer(), node()}] | undefined,
+    mod                 :: atom(),
+    mod_state           :: mod_state(),
+    n_val               :: pos_integer(),
+    node_check_service  :: module(),
+    vnode_selector      :: vnode_selector(),
+    pvc                 :: primary_vnode_coverage(),
+    request             :: tuple(),
+    req_id              :: req_id(),
+    required_responses  :: pos_integer() | undefined,
+    response_count = 0  :: non_neg_integer(),
+    timeout             :: timeout(),
+    vnode_master        :: atom(),
+    plan_fun            :: function(),
+    process_fun         :: function()
+}).
 
 %% ===================================================================
 %% Public API

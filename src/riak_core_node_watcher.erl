@@ -1,8 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% riak_core: Core Riak Application
-%%
-%% Copyright (c) 2007-2010 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2007-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,6 +17,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
+
 -module(riak_core_node_watcher).
 
 -behaviour(gen_server).
@@ -59,19 +58,22 @@
                  bcast_tref,
                  bcast_mod = {gen_server, abcast}}).
 
--record(health_check, { state = 'waiting' :: 'waiting' | 'checking' | 'suspend',
-                        callback :: {atom(), atom(), [any()]},
-                        service_pid :: pid(),
-                        checking_pid :: pid(),
-                        health_failures = 0 :: non_neg_integer(),
-                        callback_failures = 0 :: non_neg_integer(),
-                        interval_tref,
-                        %% how many milliseconds to wait after a check has
-                        %% finished before starting a new one
-                        check_interval = ?DEFAULT_HEALTH_CHECK_INTERVAL :: timeout(),
-                        max_callback_failures = 3,
-                        max_health_failures = 1 }).
+-record(health_check, {
+    state = 'waiting'       :: 'waiting' | 'checking' | 'suspend',
+    callback                :: {atom(), atom(), [any()]},
+    service_pid             :: pid(),
+    checking_pid            :: pid() | undefined,
+    health_failures = 0     :: non_neg_integer(),
+    callback_failures = 0   :: non_neg_integer(),
+    interval_tref           :: reference() | undefined,
 
+    check_interval = ?DEFAULT_HEALTH_CHECK_INTERVAL :: timeout(),
+    %% how many milliseconds to wait after a check has
+    %% finished before starting a new one
+
+    max_callback_failures = 3   :: non_neg_integer(),
+    max_health_failures = 1     :: non_neg_integer()
+}).
 
 %% ===================================================================
 %% Public API
@@ -718,7 +720,7 @@ health_fsm(checking, {'EXIT', Pid, Cause}, Service, #health_check{checking_pid =
                                                  callback_failures = Fails}};
         Fails < InCheck#health_check.max_callback_failures ->
             #health_check{health_failures = N, check_interval = Inter} = InCheck,
-            Tref = next_health_tref(N, Inter, Service), 
+            Tref = next_health_tref(N, Inter, Service),
             OutCheck = InCheck#health_check{checking_pid = undefined,
                 callback_failures = Fails, interval_tref = Tref},
             {ok, waiting, OutCheck};

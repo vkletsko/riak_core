@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2010-2016 Basho Technologies, Inc.
+%% Copyright (c) 2010-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,36 +19,39 @@
 %% -------------------------------------------------------------------
 
 -type sender_type() :: fsm | server | raw.
--type sender() :: {sender_type(), reference() | tuple(), pid()} |
-                  %% TODO: Double-check that these special cases are kosher
-                  {server, undefined, undefined} | % special case in
-                                                   % riak_core_vnode_master.erl
-                  {fsm, undefined, pid()} |        % special case in
-                                                   % riak_kv_util:make_request/2.erl
-                  ignore.
+
+-type sender() :: {sender_type(), reference() | tuple(), pid()}
+    %% TODO: Double-check that these special cases are kosher
+    | {server, undefined, undefined}    % in riak_core_vnode_master.erl
+    | {fsm, undefined, pid()}           % in riak_kv_util:make_request/2
+    | ignore.
+
 -type partition() :: chash:index_as_int().
 -type vnode_req() :: term().
 -type keyspaces() :: [{partition(), [partition()]}].
 
 -record(riak_vnode_req_v1, {
-          index :: partition(),
-          sender=ignore :: sender(),
-          request :: vnode_req()}).
-
+    index           :: partition() | undefined,
+    sender = ignore :: sender(),
+    request         :: vnode_req()
+}).
 -record(riak_coverage_req_v1, {
-          index :: partition(),
-          keyspaces :: keyspaces(),
-          sender=ignore :: sender(),
-          request :: vnode_req()}).
+    index           :: partition(),
+    keyspaces       :: keyspaces(),
+    sender = ignore :: sender(),
+    request         :: vnode_req()
+}).
 
 -record(riak_core_fold_req_v1, {
-          foldfun :: fun(),
-          acc0 :: term()}).
+    foldfun :: fun(),
+    acc0    :: term()
+}).
 -record(riak_core_fold_req_v2, {
-          foldfun :: fun(),
-          acc0 :: term(),
-          forwardable :: boolean(),
-          opts = [] :: list()}).
+    foldfun     :: fun(),
+    acc0        :: term(),
+    forwardable :: boolean(),
+    opts = []   :: list()
+}).
 
 -define(VNODE_REQ, #riak_vnode_req_v1).
 -define(COVERAGE_REQ, #riak_coverage_req_v1).

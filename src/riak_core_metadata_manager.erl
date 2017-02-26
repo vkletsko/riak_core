@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2013-2017 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,6 +17,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
+
 -module(riak_core_metadata_manager).
 
 -behaviour(gen_server).
@@ -73,7 +74,7 @@
          }).
 
 -record(metadata_iterator, {
-          prefix :: metadata_prefix(),
+          prefix :: metadata_prefix() | undefined,
           match  :: term(),
           pos    :: term(),
           obj    :: {metadata_key(), metadata_object()} | undefined,
